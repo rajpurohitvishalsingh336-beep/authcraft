@@ -1,0 +1,94 @@
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+
+from app.api.v1.api_router import api_router
+from app.core.config import settings
+from app.core.database import Base, engine
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("authcraft")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize database tables on startup
+    logger.info("Initializing AuthCraft database schema...")
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database schema initialized successfully.")
+    yield
+    logger.info("AuthCraft backend shutting down.")
+
+
+app = FastAPI(
+    title="AuthCraft API",
+    version=settings.VERSION,
+    description="No-Code Authentication-as-a-Service Platform Backend API",
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    docs_url=f"{settings.API_V1_STR}/docs",
+    redoc_url=f"{settings.API_V1_STR}/redoc",
+    lifespan=lifespan,
+)
+
+# CORS Middleware
+origins = list(settings.BACKEND_CORS_ORIGINS)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins if origins else ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health", tags=["System Health"])
+def health_check():
+    """Application health endpoint with live database connectivity verification."""
+    db_status = "healthy"
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        db_status = "unhealthy"
+
+    return {
+        "status": "healthy" if db_status == "healthy" else "degraded",
+        "service": "authcraft-backend",
+        "version": settings.VERSION,
+        "database": db_status,
+        "environment": settings.ENVIRONMENT,
+    }
+
+
+@app.get("/", tags=["System Information"])
+def root_info():
+    """Service landing page and API documentation pointer."""
+    return {
+        "name": "AuthCraft API",
+        "description": "No-Code Authentication-as-a-Service Platform",
+        "version": settings.VERSION,
+        "docs_url": f"{settings.API_V1_STR}/docs",
+        "status": "online",
+    }
+
+
+# Mount API V1
+app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Global exception handler to prevent leaking sensitive stack traces in production."""
+    logger.error(f"Unhandled error processing {request.method} {request.url}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "An internal server error occurred. Please try again later."},
+    )

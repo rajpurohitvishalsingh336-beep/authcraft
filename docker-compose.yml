@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: authcraft-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-authcraft_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-authcraft_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-authcraft_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authcraft_user -d authcraft_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: authcraft-backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=False
+      - SECRET_KEY=${SECRET_KEY:-generate-a-secure-32-byte-secret-for-production}
+      - DATABASE_URL=postgresql://authcraft_user:authcraft_secure_password@db:5432/authcraft_db
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - PUBLIC_HOSTED_DOMAIN=${PUBLIC_HOSTED_DOMAIN:-http://localhost:3000}
+      - DEV_EMAIL_MODE=False
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: authcraft-frontend
+    restart: always
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
