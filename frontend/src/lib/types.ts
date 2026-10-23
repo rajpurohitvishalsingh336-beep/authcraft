@@ -72,6 +72,8 @@ export interface ProjectConfiguration {
   show_forgot_password: boolean;
   show_registration: boolean;
   custom_css_vars?: string | null;
+  layout_id?: string;
+  layout_tokens?: Record<string, any>;
 }
 
 export interface ApplicationUser {

@@ -9,12 +9,16 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
     create_access_token,
+    generate_project_id,
     generate_secure_token,
+    generate_slug,
     get_password_hash,
     hash_token,
     verify_password,
 )
 from app.models.developer import Developer, DeveloperSession
+from app.models.project import AllowedRedirectUri, Project
+from app.models.project_config import ProjectConfiguration
 from app.models.token import VerificationToken
 from app.schemas.developer import (
     DeveloperChangePasswordRequest,
@@ -80,6 +84,51 @@ def register_developer(
         project_name=settings.PROJECT_NAME,
         is_developer=True,
     )
+
+    # Auto-provision starter project so developer never lands on empty state
+    try:
+        starter_proj_id = generate_project_id()
+        starter_name = "Starter Workspace"
+        starter_slug = generate_slug(f"{developer.full_name or 'My'} Workspace")
+        starter_project = Project(
+            id=starter_proj_id,
+            developer_id=developer.id,
+            name=starter_name,
+            slug=starter_slug,
+            description="Your starter AuthCraft project workspace.",
+            status="active",
+            is_published=False,
+            published_version=0,
+            allow_registration=True,
+            require_email_verification=False,
+            session_duration_minutes=1440,
+            password_min_length=8,
+        )
+        db.add(starter_project)
+        db.flush()
+
+        initial_config = ProjectConfiguration(
+            project_id=starter_project.id,
+            version=1,
+            is_published=False,
+            layout_id="minimal-clean-01",
+            brand_name=starter_name,
+            page_title=f"Sign in to {starter_name}",
+            welcome_message="Welcome back! Please enter your credentials to continue.",
+            login_text=f"Sign in to access your {starter_name} account",
+            register_text=f"Create a new {starter_name} account",
+        )
+        db.add(initial_config)
+
+        default_redirect = AllowedRedirectUri(
+            project_id=starter_project.id,
+            redirect_uri=f"{settings.FRONTEND_URL}/demo-app/callback",
+        )
+        db.add(default_redirect)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        # Fallback non-blocking if starter creation fails
 
     return developer
 

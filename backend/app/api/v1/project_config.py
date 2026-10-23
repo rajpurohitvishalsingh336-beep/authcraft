@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -183,6 +184,8 @@ def update_draft_config(
 
     # Apply verified updates
     for field, value in req.model_dump(exclude_unset=True).items():
+        if field == "layout_tokens" and isinstance(value, (dict, list)):
+            value = json.dumps(value)
         setattr(config, field, value)
 
     db.commit()
@@ -222,6 +225,107 @@ def apply_template(
 
     for key, val in template.items():
         setattr(config, key, val)
+
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+@router.get("/{project_id}/export")
+def export_project_config(
+    project_id: str,
+    current_dev: Developer = Depends(get_current_developer),
+    db: Session = Depends(get_db),
+):
+    """Export project configuration as a validated JSON structure."""
+    project = (
+        db.query(Project)
+        .filter(Project.id == project_id, Project.developer_id == current_dev.id)
+        .first()
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    config = (
+        db.query(ProjectConfiguration)
+        .filter(ProjectConfiguration.project_id == project.id)
+        .order_by(ProjectConfiguration.created_at.desc())
+        .first()
+    )
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuration not found.")
+
+    return {
+        "export_version": "2.0",
+        "authcraft_schema_version": "2.0",
+        "exported_at": config.updated_at.isoformat() if config.updated_at else None,
+        "project_name": project.name,
+        "configuration": {
+            "layout_id": getattr(config, "layout_id", "saas-01"),
+            "brand_name": config.brand_name,
+            "page_title": config.page_title,
+            "logo_url": config.logo_url,
+            "primary_color": config.primary_color,
+            "secondary_color": config.secondary_color,
+            "background_color": config.background_color,
+            "card_background_color": config.card_background_color,
+            "text_color": config.text_color,
+            "theme_mode": config.theme_mode,
+            "template_name": config.template_name,
+            "layout_style": config.layout_style,
+            "form_width": config.form_width,
+            "form_alignment": config.form_alignment,
+            "button_style": config.button_style,
+            "input_style": config.input_style,
+            "font_family": config.font_family,
+            "border_radius": config.border_radius,
+            "welcome_message": config.welcome_message,
+            "login_text": config.login_text,
+            "register_text": config.register_text,
+            "email_label": config.email_label,
+            "password_label": config.password_label,
+            "footer_text": config.footer_text,
+            "show_password_toggle": config.show_password_toggle,
+            "show_forgot_password": config.show_forgot_password,
+            "show_registration": config.show_registration,
+            "layout_tokens": getattr(config, "layout_tokens", None),
+        },
+    }
+
+
+@router.post("/{project_id}/import", response_model=ProjectConfigResponse)
+def import_project_config(
+    project_id: str,
+    payload: Dict[str, Any],
+    current_dev: Developer = Depends(get_current_developer),
+    db: Session = Depends(get_db),
+):
+    """Import and validate project configuration from JSON."""
+    project = (
+        db.query(Project)
+        .filter(Project.id == project_id, Project.developer_id == current_dev.id)
+        .first()
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    raw_config = payload.get("configuration") if "configuration" in payload else payload
+    validated = ProjectConfigUpdate.model_validate(raw_config)
+
+    config = (
+        db.query(ProjectConfiguration)
+        .filter(ProjectConfiguration.project_id == project.id)
+        .order_by(ProjectConfiguration.created_at.desc())
+        .first()
+    )
+    if not config:
+        config = ProjectConfiguration(project_id=project.id)
+        db.add(config)
+
+    for field, value in validated.model_dump(exclude_unset=True).items():
+        if field == "layout_tokens" and isinstance(value, (dict, list)):
+            value = json.dumps(value)
+        setattr(config, field, value)
 
     db.commit()
     db.refresh(config)

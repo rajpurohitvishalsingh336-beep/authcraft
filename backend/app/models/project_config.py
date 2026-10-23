@@ -32,6 +32,7 @@ class ProjectConfiguration(Base):
     theme_mode = Column(String(10), default="light", nullable=False)  # light, dark
 
     # Layout & Styling
+    layout_id = Column(String(50), default="saas-01", nullable=False)
     template_name = Column(String(30), default="modern", nullable=False)  # modern, minimal, professional, dark, startup, classic
     layout_style = Column(String(20), default="card", nullable=False)  # card, simple
     form_width = Column(String(10), default="md", nullable=False)  # sm, md, lg
@@ -40,6 +41,7 @@ class ProjectConfiguration(Base):
     input_style = Column(String(20), default="outline", nullable=False)  # outline, filled, underlined
     font_family = Column(String(30), default="Inter", nullable=False)  # Inter, Roboto, Poppins, Outfit, System
     border_radius = Column(Integer, default=8, nullable=False)  # 0, 4, 8, 12, 16, 9999
+    layout_tokens = Column(Text, nullable=True)  # JSON tokens for layout-specific configurations
 
     # Copy & Content
     welcome_message = Column(String(255), default="Welcome back! Please enter your details.", nullable=False)

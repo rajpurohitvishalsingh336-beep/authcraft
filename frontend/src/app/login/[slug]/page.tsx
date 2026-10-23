@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { apiRequest } from '@/lib/api';
 import { PublicProjectConfig } from '@/lib/types';
+import { getLayoutById } from '@/lib/layouts/catalog';
+import { UniversalLayoutRenderer } from '@/lib/layouts/renderer';
 
 function HostedLoginForm({ slug }: { slug: string }) {
   const router = useRouter();
@@ -102,10 +104,10 @@ function HostedLoginForm({ slug }: { slug: string }) {
 
   if (loadingConfig) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-[Inter]">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-[Inter]">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
-          <p className="text-xs text-slate-500 font-medium">Loading secure login page...</p>
+          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+          <p className="text-xs text-slate-400 font-medium">Loading secure login portal...</p>
         </div>
       </div>
     );
@@ -114,17 +116,17 @@ function HostedLoginForm({ slug }: { slug: string }) {
   // Safe fallback if project does not exist
   if (configError) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-[Inter]">
-        <div className="max-w-md w-full bg-white rounded-2xl p-8 border border-slate-200 shadow-xl text-center">
-          <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-[Inter]">
+        <div className="max-w-md w-full bg-slate-900 rounded-2xl p-8 border border-slate-800 shadow-2xl text-center">
+          <div className="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto mb-4">
             <ShieldAlert className="w-6 h-6" />
           </div>
-          <h1 className="text-lg font-bold text-slate-900">Application Unavailable</h1>
-          <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+          <h1 className="text-lg font-bold text-white">Application Unavailable</h1>
+          <p className="text-xs text-slate-400 mt-2 leading-relaxed">
             {configError}
           </p>
-          <div className="mt-6 pt-4 border-t border-slate-100">
-            <Link href="/" className="text-xs font-semibold text-indigo-600 hover:underline">
+          <div className="mt-6 pt-4 border-t border-slate-800">
+            <Link href="/" className="text-xs font-semibold text-indigo-400 hover:underline">
               Return to AuthCraft Home
             </Link>
           </div>
@@ -136,13 +138,13 @@ function HostedLoginForm({ slug }: { slug: string }) {
   // Safe fallback if project is disabled
   if (projectConfig?.status === 'disabled') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-[Inter]">
-        <div className="max-w-md w-full bg-white rounded-2xl p-8 border border-slate-200 shadow-xl text-center">
-          <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-[Inter]">
+        <div className="max-w-md w-full bg-slate-900 rounded-2xl p-8 border border-slate-800 shadow-2xl text-center">
+          <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto mb-4">
             <ShieldAlert className="w-6 h-6" />
           </div>
-          <h1 className="text-lg font-bold text-slate-900">Application Deactivated</h1>
-          <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+          <h1 className="text-lg font-bold text-white">Application Deactivated</h1>
+          <p className="text-xs text-slate-400 mt-2 leading-relaxed">
             {projectConfig.message || 'This application project is currently disabled by its administrator.'}
           </p>
         </div>
@@ -153,13 +155,13 @@ function HostedLoginForm({ slug }: { slug: string }) {
   // Safe fallback if project is unpublished
   if (projectConfig?.status === 'unpublished') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-[Inter]">
-        <div className="max-w-md w-full bg-white rounded-2xl p-8 border border-slate-200 shadow-xl text-center">
-          <div className="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-4">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-[Inter]">
+        <div className="max-w-md w-full bg-slate-900 rounded-2xl p-8 border border-slate-800 shadow-2xl text-center">
+          <div className="w-12 h-12 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center justify-center mx-auto mb-4">
             <Lock className="w-6 h-6" />
           </div>
-          <h1 className="text-lg font-bold text-slate-900">{projectConfig.project_name || 'Application'}</h1>
-          <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+          <h1 className="text-lg font-bold text-white">{projectConfig.project_name || 'Application'}</h1>
+          <p className="text-xs text-slate-400 mt-2 leading-relaxed">
             {projectConfig.message || 'This project\'s authentication page has not been published yet. The project developer can publish it anytime from the AuthCraft Visual Builder.'}
           </p>
         </div>
@@ -169,194 +171,50 @@ function HostedLoginForm({ slug }: { slug: string }) {
 
   if (!projectConfig) return null;
 
+  // Resolve layout definition from catalog
+  const layout = getLayoutById(projectConfig.layout_id || 'minimal-clean-01');
+
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4 sm:p-6 transition-colors"
-      style={{
-        backgroundColor: projectConfig.background_color,
-        fontFamily: projectConfig.font_family,
+    <UniversalLayoutRenderer
+      layout={layout}
+      config={projectConfig}
+      mode="login"
+      email={email}
+      setEmail={setEmail}
+      password={password}
+      setPassword={setPassword}
+      showPassword={showPassword}
+      setShowPassword={setShowPassword}
+      submitting={submitting}
+      handleSubmit={handleSubmit}
+      authError={authError}
+      authSuccess={authSuccess}
+      redirectUri={redirectUri}
+      isBuilderPreview={false}
+      onSwitchMode={(targetMode) => {
+        if (targetMode === 'register') {
+          router.push(
+            `/register/${slug}${redirectUri ? `?redirect_uri=${encodeURIComponent(redirectUri)}` : ''}`
+          );
+        } else if (targetMode === 'forgot') {
+          router.push(
+            `/forgot-password/${slug}${redirectUri ? `?redirect_uri=${encodeURIComponent(redirectUri)}` : ''}`
+          );
+        }
       }}
-    >
-      <div
-        className="w-full max-w-[440px] shadow-2xl p-6 sm:p-8 transition-all"
-        style={{
-          backgroundColor: projectConfig.card_background_color,
-          borderRadius: `${projectConfig.border_radius}px`,
-          color: projectConfig.text_color,
-        }}
-      >
-        {authSuccess ? (
-          <div className="text-center py-4 space-y-4">
-            <div
-              className="w-14 h-14 rounded-full flex items-center justify-center text-white mx-auto shadow-md"
-              style={{ backgroundColor: projectConfig.primary_color }}
-            >
-              <CheckCircle2 className="w-8 h-8" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold">Successfully Signed In</h2>
-              <p className="text-xs opacity-75 mt-1">
-                You are authenticated into <span className="font-semibold">{projectConfig.brand_name}</span>.
-              </p>
-            </div>
-
-            <div className="p-3 bg-black/5 rounded-xl text-left text-xs space-y-1 font-mono">
-              <p><span className="opacity-60">User:</span> {authSuccess.user.email}</p>
-              <p><span className="opacity-60">Session ID:</span> {authSuccess.session_token.substring(0, 16)}...</p>
-            </div>
-
-            <div className="pt-2 flex flex-col gap-2">
-              <button
-                onClick={handleLogout}
-                className="w-full py-2.5 rounded-lg border border-slate-300 text-xs font-semibold hover:bg-black/5 transition-colors flex items-center justify-center gap-1.5"
-              >
-                <LogOut className="w-3.5 h-3.5" /> Sign Out
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            <div className="text-center mb-6">
-              {projectConfig.logo_url ? (
-                <img
-                  src={projectConfig.logo_url}
-                  alt={projectConfig.brand_name}
-                  className="w-12 h-12 object-contain mx-auto mb-3"
-                />
-              ) : (
-                <div
-                  className="w-12 h-12 mx-auto flex items-center justify-center text-white mb-3 shadow-md"
-                  style={{
-                    backgroundColor: projectConfig.primary_color,
-                    borderRadius:
-                      projectConfig.button_style === 'pill'
-                        ? '9999px'
-                        : `${projectConfig.border_radius}px`,
-                  }}
-                >
-                  <Lock className="w-6 h-6" />
-                </div>
-              )}
-              <h1 className="text-xl font-bold tracking-tight">{projectConfig.brand_name}</h1>
-              <p className="text-xs opacity-75 mt-1">{projectConfig.welcome_message}</p>
-            </div>
-
-            {authError && (
-              <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
-                <span>{authError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold mb-1 opacity-80">
-                  {projectConfig.email_label}
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="name@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full text-xs px-3.5 py-2.5 border border-slate-300 bg-transparent text-slate-900 focus:outline-none focus:ring-2"
-                  style={{
-                    borderRadius: `${projectConfig.border_radius}px`,
-                    color: projectConfig.text_color,
-                  }}
-                />
-              </div>
-
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-xs font-semibold opacity-80">
-                    {projectConfig.password_label}
-                  </label>
-                  {projectConfig.show_forgot_password && (
-                    <Link
-                      href={`/forgot-password/${slug}`}
-                      className="text-[11px] font-semibold hover:underline"
-                      style={{ color: projectConfig.primary_color }}
-                    >
-                      Forgot password?
-                    </Link>
-                  )}
-                </div>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    placeholder="••••••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full text-xs px-3.5 py-2.5 border border-slate-300 bg-transparent text-slate-900 focus:outline-none focus:ring-2 pr-12"
-                    style={{
-                      borderRadius: `${projectConfig.border_radius}px`,
-                      color: projectConfig.text_color,
-                    }}
-                  />
-                  {projectConfig.show_password_toggle && (
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-2.5 text-[11px] opacity-60 hover:opacity-100 font-medium"
-                    >
-                      {showPassword ? 'Hide' : 'Show'}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full py-2.5 text-xs font-bold text-white shadow-md transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
-                style={{
-                  backgroundColor: projectConfig.primary_color,
-                  borderRadius:
-                    projectConfig.button_style === 'pill'
-                      ? '9999px'
-                      : `${projectConfig.border_radius}px`,
-                }}
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Verifying...
-                  </>
-                ) : (
-                  <>
-                    Sign In <ArrowRight className="w-3.5 h-3.5" />
-                  </>
-                )}
-              </button>
-            </form>
-
-            {projectConfig.show_registration && (
-              <div className="mt-6 text-center text-xs opacity-75">
-                Don&apos;t have an account?{' '}
-                <Link
-                  href={`/register/${slug}${redirectUri ? `?redirect_uri=${encodeURIComponent(redirectUri)}` : ''}`}
-                  className="font-bold hover:underline"
-                  style={{ color: projectConfig.primary_color }}
-                >
-                  Create one now
-                </Link>
-              </div>
-            )}
-
-            <div className="mt-8 pt-4 border-t border-slate-200/40 text-center text-[10px] opacity-60">
-              {projectConfig.footer_text}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+    />
   );
 }
 
 export default function HostedLoginPage({ params }: { params: { slug: string } }) {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-slate-50 flex items-center justify-center"><Loader2 className="w-8 h-8 text-indigo-600 animate-spin" /></div>}>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+        </div>
+      }
+    >
       <HostedLoginForm slug={params.slug} />
     </Suspense>
   );

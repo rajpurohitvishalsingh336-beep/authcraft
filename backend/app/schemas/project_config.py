@@ -1,7 +1,8 @@
+import json
 import re
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any, Optional, Union
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 HEX_COLOR_REGEX = r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
@@ -21,14 +22,16 @@ class ProjectConfigBase(BaseModel):
     theme_mode: str = Field("light", pattern="^(light|dark)$")
 
     # Layout & Styles
-    template_name: str = Field("modern", pattern="^(modern|minimal|professional|dark|startup|classic)$")
+    layout_id: str = Field("minimal-clean-01", max_length=50)
+    template_name: str = Field("modern")
     layout_style: str = Field("card", pattern="^(card|simple)$")
     form_width: str = Field("md", pattern="^(sm|md|lg)$")
     form_alignment: str = Field("center", pattern="^(left|center|right)$")
     button_style: str = Field("rounded", pattern="^(solid|outline|rounded|pill)$")
     input_style: str = Field("outline", pattern="^(outline|filled|underlined)$")
-    font_family: str = Field("Inter", pattern="^(Inter|Roboto|Poppins|Outfit|System)$")
+    font_family: str = Field("Inter")
     border_radius: int = Field(8, ge=0, le=9999)
+    layout_tokens: Optional[Union[dict, list, str, Any]] = None
 
     # Copy & Content
     welcome_message: str = Field("Welcome back! Please enter your details.", max_length=255)
@@ -46,9 +49,46 @@ class ProjectConfigBase(BaseModel):
     # Custom styling
     custom_css_vars: Optional[str] = Field(None, max_length=2000)
 
+    @field_validator("layout_tokens", mode="before")
+    def parse_tokens(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return v
+        return v
 
-class ProjectConfigUpdate(ProjectConfigBase):
-    pass
+
+class ProjectConfigUpdate(BaseModel):
+    brand_name: Optional[str] = None
+    page_title: Optional[str] = None
+    logo_url: Optional[str] = None
+    primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None
+    background_color: Optional[str] = None
+    card_background_color: Optional[str] = None
+    text_color: Optional[str] = None
+    theme_mode: Optional[str] = None
+    layout_id: Optional[str] = None
+    template_name: Optional[str] = None
+    layout_style: Optional[str] = None
+    form_width: Optional[str] = None
+    form_alignment: Optional[str] = None
+    button_style: Optional[str] = None
+    input_style: Optional[str] = None
+    font_family: Optional[str] = None
+    border_radius: Optional[int] = None
+    layout_tokens: Optional[Union[dict, list, str, Any]] = None
+    welcome_message: Optional[str] = None
+    login_text: Optional[str] = None
+    register_text: Optional[str] = None
+    email_label: Optional[str] = None
+    password_label: Optional[str] = None
+    footer_text: Optional[str] = None
+    show_password_toggle: Optional[bool] = None
+    show_forgot_password: Optional[bool] = None
+    show_registration: Optional[bool] = None
+    custom_css_vars: Optional[str] = None
 
 
 class ProjectConfigResponse(ProjectConfigBase):

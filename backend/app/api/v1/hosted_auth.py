@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -155,6 +156,14 @@ def get_public_project_config(
             .first()
         )
 
+    raw_tokens = getattr(config, "layout_tokens", None)
+    parsed_tokens = raw_tokens
+    if isinstance(raw_tokens, str):
+        try:
+            parsed_tokens = json.loads(raw_tokens)
+        except Exception:
+            parsed_tokens = raw_tokens
+
     return {
         "status": "ready",
         "project_id": project.id,
@@ -172,6 +181,8 @@ def get_public_project_config(
         "card_background_color": config.card_background_color,
         "text_color": config.text_color,
         "theme_mode": config.theme_mode,
+        "layout_id": getattr(config, "layout_id", "minimal-clean-01"),
+        "layout_tokens": parsed_tokens,
         "template_name": config.template_name,
         "layout_style": config.layout_style,
         "form_width": config.form_width,

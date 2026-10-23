@@ -23,6 +23,19 @@ export default function MyProjectsPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [duplicating, setDuplicating] = useState<string | null>(null);
+
+  const handleDuplicateProject = async (projectId: string) => {
+    setDuplicating(projectId);
+    try {
+      await apiRequest(`/projects/${projectId}/duplicate`, { method: 'POST' });
+      await refreshProjects();
+    } catch (err: any) {
+      alert(err.message || 'Failed to duplicate project.');
+    } finally {
+      setDuplicating(null);
+    }
+  };
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -157,6 +170,16 @@ export default function MyProjectsPage() {
                       Select
                     </button>
                   )}
+
+                  <button
+                    onClick={() => handleDuplicateProject(proj.id)}
+                    disabled={duplicating === proj.id}
+                    title="Duplicate Project Configuration"
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 border border-slate-200 transition-colors flex items-center gap-1"
+                  >
+                    <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>{duplicating === proj.id ? 'Duplicating...' : 'Duplicate'}</span>
+                  </button>
 
                   {deleteConfirm === proj.id ? (
                     <div className="flex items-center gap-1">

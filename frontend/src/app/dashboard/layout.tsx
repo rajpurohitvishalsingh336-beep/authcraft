@@ -23,6 +23,15 @@ import {
   Sparkles,
   AlertTriangle,
   Globe,
+  Menu,
+  ChevronLeft,
+  ChevronRight,
+  Sun,
+  Moon,
+  Search,
+  Bell,
+  CheckCircle2,
+  FolderPlus,
 } from 'lucide-react';
 import {
   apiRequest,
@@ -39,6 +48,8 @@ interface DashboardContextType {
   loading: boolean;
   refreshProjects: () => Promise<void>;
   setActiveProject: (p: Project) => void;
+  dashboardTheme: 'light' | 'dark';
+  toggleDashboardTheme: () => void;
 }
 
 export const DashboardContext = createContext<DashboardContextType>({
@@ -48,6 +59,8 @@ export const DashboardContext = createContext<DashboardContextType>({
   loading: true,
   refreshProjects: async () => {},
   setActiveProject: () => {},
+  dashboardTheme: 'light',
+  toggleDashboardTheme: () => {},
 });
 
 export const useDashboard = () => useContext(DashboardContext);
@@ -67,6 +80,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [creatingProject, setCreatingProject] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // V2 UI Controls: Collapsible sidebar & dark mode
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [dashboardTheme, setDashboardTheme] = useState<'light' | 'dark'>('light');
+
   const fetchInitialData = async () => {
     try {
       const dev = await apiRequest<Developer>('/auth/me');
@@ -81,6 +98,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         const selected = found || projs[0];
         setActiveProjectState(selected);
         setStoredActiveProjectId(selected.id);
+      } else {
+        // Clear active project if user deleted all
+        setActiveProjectState(null);
+        setStoredActiveProjectId(null);
       }
     } catch (err: any) {
       if (err.status === 401 || err.status === 403) {
@@ -99,6 +120,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const handleSetActiveProject = (proj: Project) => {
     setActiveProjectState(proj);
     setStoredActiveProjectId(proj.id);
+  };
+
+  const toggleDashboardTheme = () => {
+    setDashboardTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
   };
 
   const copyToClipboard = (text: string, type: 'id' | 'url') => {
@@ -137,6 +162,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   };
 
+  // Instant starter project creation for empty accounts
+  const handleCreateStarter = async () => {
+    setCreatingProject(true);
+    try {
+      const created = await apiRequest<Project>('/projects', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'Starter Workspace' }),
+      });
+      setProjects((prev) => [created, ...prev]);
+      setActiveProjectState(created);
+      setStoredActiveProjectId(created.id);
+    } catch (err: any) {
+      alert(err.message || 'Failed to initialize workspace.');
+    } finally {
+      setCreatingProject(false);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await apiRequest('/auth/logout', { method: 'POST' });
@@ -149,10 +192,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   };
 
+  // Breadcrumbs calculation
+  const getBreadcrumbTitle = () => {
+    if (pathname === '/dashboard') return 'Overview';
+    if (pathname.includes('/builder')) return 'Visual Login Builder (150 Layouts)';
+    if (pathname.includes('/projects')) return 'My Applications';
+    if (pathname.includes('/users')) return 'End-User Directory';
+    if (pathname.includes('/events')) return 'Authentication Audit Log';
+    if (pathname.includes('/sessions')) return 'Active User Sessions';
+    if (pathname.includes('/settings')) return 'Project Settings';
+    if (pathname.includes('/docs')) return 'Developer Documentation';
+    return 'Dashboard';
+  };
+
   const navItems = [
     { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
     { label: 'My Projects', href: '/dashboard/projects', icon: Layers },
-    { label: 'Login Page Builder', href: '/dashboard/builder', icon: Palette },
+    { label: 'Login Page Builder', href: '/dashboard/builder', icon: Palette, badge: '150 Designs' },
     { label: 'Users & Directory', href: '/dashboard/users', icon: Users },
     { label: 'Authentication Events', href: '/dashboard/events', icon: Activity },
     { label: 'Active Sessions', href: '/dashboard/sessions', icon: KeyRound },
@@ -162,10 +218,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white font-[Inter]">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white font-[Inter]">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-          <p className="text-sm font-medium text-slate-400">Loading AuthCraft Dashboard...</p>
+          <Loader2 className="w-9 h-9 text-indigo-500 animate-spin" />
+          <p className="text-sm font-medium text-slate-400">Loading AuthCraft V2 Platform...</p>
         </div>
       </div>
     );
@@ -180,54 +236,98 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         loading,
         refreshProjects: fetchInitialData,
         setActiveProject: handleSetActiveProject,
+        dashboardTheme,
+        toggleDashboardTheme,
       }}
     >
-      <div className="min-h-screen bg-slate-100 flex font-[Inter]">
-        {/* Sidebar */}
-        <aside className="w-64 bg-slate-900 border-r border-slate-800 text-slate-300 flex flex-col shrink-0">
-          {/* Logo */}
-          <div className="h-16 px-6 border-b border-slate-800 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-sm shadow-indigo-500/30">
+      <div
+        className={`min-h-screen flex font-[Inter] ${
+          dashboardTheme === 'dark' ? 'bg-[#0b0f17] text-slate-100' : 'bg-slate-50 text-slate-900'
+        }`}
+      >
+        {/* V2 Collapsible Sidebar */}
+        <aside
+          className={`${
+            sidebarCollapsed ? 'w-20' : 'w-64'
+          } bg-slate-950 border-r border-slate-800 text-slate-300 flex flex-col shrink-0 transition-all duration-300 z-40 relative`}
+        >
+          {/* Logo Bar */}
+          <div className="h-16 px-4 border-b border-slate-800 flex items-center justify-between">
+            <Link href="/" className="flex items-center gap-2.5 overflow-hidden">
+              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-sm shadow-indigo-500/30 shrink-0">
                 <ShieldCheck className="w-5 h-5" />
               </div>
-              <span className="text-lg font-bold tracking-tight text-white">
-                Auth<span className="text-indigo-400">Craft</span>
-              </span>
+              {!sidebarCollapsed && (
+                <span className="text-base font-bold tracking-tight text-white whitespace-nowrap">
+                  Auth<span className="text-indigo-400">Craft</span>
+                  <span className="ml-1 px-1.5 py-0.5 text-[9px] font-black uppercase rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                    V2
+                  </span>
+                </span>
+              )}
             </Link>
+
+            {/* Collapse / Expand toggle button */}
+            <button
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              title={sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            >
+              {sidebarCollapsed ? (
+                <ChevronRight className="w-4 h-4" />
+              ) : (
+                <ChevronLeft className="w-4 h-4" />
+              )}
+            </button>
           </div>
 
           {/* Project Switcher */}
-          <div className="p-4 border-b border-slate-800">
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-              Active Application
-            </label>
-            <div className="flex items-center gap-2">
-              <select
-                value={activeProject?.id || ''}
-                onChange={(e) => {
-                  const sel = projects.find((p) => p.id === e.target.value);
-                  if (sel) handleSetActiveProject(sel);
-                }}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-medium focus:outline-none focus:border-indigo-500"
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} {p.is_published ? '●' : '○'}
-                  </option>
-                ))}
-              </select>
+          {!sidebarCollapsed ? (
+            <div className="p-4 border-b border-slate-800">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                Active Project
+              </label>
+              <div className="flex items-center gap-2">
+                <select
+                  value={activeProject?.id || ''}
+                  onChange={(e) => {
+                    const sel = projects.find((p) => p.id === e.target.value);
+                    if (sel) handleSetActiveProject(sel);
+                  }}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-medium focus:outline-none focus:border-indigo-500"
+                >
+                  {projects.length === 0 ? (
+                    <option value="">No Projects Yet</option>
+                  ) : (
+                    projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} {p.is_published ? '●' : '○'}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <button
+                  onClick={() => setCreateModalOpen(true)}
+                  title="Create New Project"
+                  className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-all shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-3 border-b border-slate-800 flex justify-center">
               <button
                 onClick={() => setCreateModalOpen(true)}
                 title="Create New Project"
-                className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow transition-all shrink-0"
+                className="w-9 h-9 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center shadow"
               >
                 <Plus className="w-4 h-4" />
               </button>
             </div>
-          </div>
+          )}
 
-          {/* Nav links */}
+          {/* Navigation Links */}
           <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
             {navItems.map((item) => {
               const active = pathname === item.href;
@@ -236,153 +336,240 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-3 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
+                  title={sidebarCollapsed ? item.label : undefined}
+                  className={`flex items-center ${
+                    sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-3'
+                  } py-2.5 text-xs font-semibold rounded-lg transition-all ${
                     active
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-900'
                   }`}
                 >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span>{item.label}</span>
+                  <div className="flex items-center gap-3 truncate">
+                    <Icon className="w-4 h-4 shrink-0" />
+                    {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
+                  </div>
+                  {!sidebarCollapsed && item.badge && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shrink-0">
+                      {item.badge}
+                    </span>
+                  )}
                 </Link>
               );
             })}
           </nav>
 
           {/* Developer User Footer */}
-          <div className="p-4 border-t border-slate-800 flex items-center justify-between">
-            <div className="overflow-hidden">
-              <p className="text-xs font-semibold text-white truncate">{developer?.full_name}</p>
-              <p className="text-[11px] text-slate-400 truncate">{developer?.email}</p>
-            </div>
+          <div className="p-3 border-t border-slate-800 flex items-center justify-between">
+            {!sidebarCollapsed ? (
+              <div className="overflow-hidden pr-2">
+                <p className="text-xs font-semibold text-white truncate">
+                  {developer?.full_name || 'Developer'}
+                </p>
+                <p className="text-[11px] text-slate-400 truncate">{developer?.email}</p>
+              </div>
+            ) : null}
             <button
               onClick={handleLogout}
               title="Sign Out"
-              className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+              className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-900 rounded-lg transition-colors shrink-0"
             >
               <LogOut className="w-4 h-4" />
             </button>
           </div>
         </aside>
 
-        {/* Main Content Area */}
+        {/* Main Content Viewport */}
         <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-          {/* Top Bar with Project Identifiers & Mandatory Hosted Login URL */}
-          <header className="bg-white border-b border-slate-200 px-6 py-3 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-30 shadow-sm">
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-sm font-bold text-slate-900">
-                {activeProject?.name || 'No Project Selected'}
-              </span>
+          {/* Top Bar with Breadcrumbs & Actions */}
+          <header
+            className={`border-b px-6 py-3 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-30 shadow-xs ${
+              dashboardTheme === 'dark'
+                ? 'bg-[#10141e]/90 border-slate-800 backdrop-blur-md'
+                : 'bg-white/90 border-slate-200 backdrop-blur-md'
+            }`}
+          >
+            {/* Left: Breadcrumb Navigation */}
+            <div className="flex items-center gap-2 text-xs flex-wrap">
+              <span className="opacity-50">AuthCraft</span>
+              <span className="opacity-30">/</span>
+              <span className="font-bold opacity-90">{getBreadcrumbTitle()}</span>
 
               {activeProject && (
-                <>
-                  {/* Unique Project ID Pill */}
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-xs font-mono border border-slate-200">
-                    <span className="text-slate-400 font-sans text-[10px] uppercase font-bold">Project ID:</span>
-                    <span className="truncate max-w-[120px] sm:max-w-none">{activeProject.id}</span>
-                    <button
-                      onClick={() => copyToClipboard(activeProject.id, 'id')}
-                      title="Copy Project ID"
-                      className="text-slate-400 hover:text-slate-700 ml-1"
-                    >
-                      {copiedId ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-
-                  {/* Status Badge */}
-                  <span
-                    className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-                      activeProject.is_published
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                    }`}
-                  >
-                    {activeProject.is_published
-                      ? `Published (v${activeProject.published_version})`
-                      : 'Draft / Unpublished'}
-                  </span>
-                </>
+                <div className="ml-2 hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[11px] font-mono">
+                  <span>{activeProject.name}</span>
+                </div>
               )}
             </div>
 
-            {/* Mandatory Feature: The Hosted Login URL Action Pill */}
-            {activeProject && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-50/80 border border-indigo-200 text-indigo-900 text-xs">
-                  <Globe className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                  <span className="font-semibold text-indigo-700">Hosted URL:</span>
-                  <span className="font-mono text-indigo-600 truncate max-w-[150px] sm:max-w-[240px]">
-                    {activeProject.hosted_login_url}
+            {/* Right: Project Pill & Theme Toggle */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {activeProject ? (
+                <>
+                  {/* Project ID Pill */}
+                  <div
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono border ${
+                      dashboardTheme === 'dark'
+                        ? 'bg-slate-900 text-slate-300 border-slate-800'
+                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    <span className="opacity-50 text-[10px] uppercase font-sans font-bold">
+                      ID:
+                    </span>
+                    <span className="truncate max-w-[100px] sm:max-w-none">
+                      {activeProject.id}
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(activeProject.id, 'id')}
+                      title="Copy Project ID"
+                      className="opacity-60 hover:opacity-100 ml-1 transition-opacity"
+                    >
+                      {copiedId ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Hosted Login URL Action Pill */}
+                  <div
+                    className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg text-xs border ${
+                      dashboardTheme === 'dark'
+                        ? 'bg-indigo-950/40 border-indigo-500/30 text-indigo-300'
+                        : 'bg-indigo-50 border-indigo-200 text-indigo-900'
+                    }`}
+                  >
+                    <Globe className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                    <span className="font-semibold hidden sm:inline">Hosted URL:</span>
+                    <span className="font-mono truncate max-w-[130px] sm:max-w-[200px]">
+                      {activeProject.hosted_login_url}
+                    </span>
+
+                    <button
+                      onClick={() => copyToClipboard(activeProject.hosted_login_url, 'url')}
+                      className="p-1 hover:bg-indigo-500/20 rounded transition-colors"
+                      title="Copy Hosted Login URL"
+                    >
+                      {copiedUrl ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
+                    <a
+                      href={activeProject.hosted_login_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-1 hover:bg-indigo-500/20 rounded transition-colors"
+                      title="Open Live Hosted Page"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+
+                  {/* Published Badge */}
+                  <span
+                    className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
+                      activeProject.is_published
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                        : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                    }`}
+                  >
+                    {activeProject.is_published
+                      ? `Published v${activeProject.published_version}`
+                      : 'Draft'}
                   </span>
+                </>
+              ) : null}
 
-                  <button
-                    onClick={() => copyToClipboard(activeProject.hosted_login_url, 'url')}
-                    className="p-1 hover:bg-indigo-100 rounded text-indigo-700 transition-colors flex items-center gap-1"
-                    title="Copy Hosted Login URL"
-                  >
-                    {copiedUrl ? (
-                      <span className="text-emerald-700 text-[11px] font-bold flex items-center gap-0.5">
-                        <Check className="w-3 h-3" /> Copied!
-                      </span>
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-
-                  <a
-                    href={activeProject.hosted_login_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-1 hover:bg-indigo-100 rounded text-indigo-700 transition-colors"
-                    title="Open Hosted Login Page"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </div>
-
-                {!activeProject.is_published && (
-                  <Link
-                    href="/dashboard/builder"
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-all"
-                  >
-                    Publish Page
-                  </Link>
+              {/* Theme Toggle Button */}
+              <button
+                onClick={toggleDashboardTheme}
+                title={`Switch to ${dashboardTheme === 'light' ? 'Dark' : 'Light'} Mode`}
+                className={`p-1.5 rounded-lg border transition-colors ${
+                  dashboardTheme === 'dark'
+                    ? 'border-slate-800 text-amber-400 hover:bg-slate-900'
+                    : 'border-slate-200 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                {dashboardTheme === 'dark' ? (
+                  <Sun className="w-4 h-4" />
+                ) : (
+                  <Moon className="w-4 h-4" />
                 )}
-              </div>
-            )}
+              </button>
+            </div>
           </header>
 
-          {/* Children View */}
-          <main className="p-6 flex-1">{children}</main>
+          {/* Empty Workspace Onboarding Banner if projects.length === 0 */}
+          {projects.length === 0 && !loading && (
+            <div className="m-6 p-6 rounded-2xl bg-gradient-to-r from-indigo-900/30 via-slate-900 to-indigo-950/40 border border-indigo-500/30 text-white shadow-xl flex flex-col sm:flex-row items-center justify-between gap-6">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-indigo-400" />
+                  <h3 className="text-base font-bold">Welcome to AuthCraft V2!</h3>
+                </div>
+                <p className="text-xs text-slate-300 max-w-xl">
+                  You haven't created an application project yet. Initialize your first workspace to
+                  access all 150 login page designs, project-isolated users, and hosted URLs.
+                </p>
+              </div>
+              <button
+                onClick={handleCreateStarter}
+                disabled={creatingProject}
+                className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center gap-2 shrink-0 transition-all"
+              >
+                {creatingProject ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FolderPlus className="w-4 h-4" />
+                )}
+                <span>Initialize Starter Workspace</span>
+              </button>
+            </div>
+          )}
+
+          {/* Dashboard Children */}
+          <main className="p-4 sm:p-6 flex-1">{children}</main>
         </div>
 
         {/* Create Project Modal */}
         {createModalOpen && (
-          <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-              <h3 className="text-lg font-bold text-slate-900 mb-2">Create New Application</h3>
-              <p className="text-xs text-slate-600 mb-4">
-                Each project receives its own unique Project ID, isolated end-user population, and customizable hosted login page.
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div
+              className={`rounded-2xl max-w-md w-full p-6 shadow-2xl border ${
+                dashboardTheme === 'dark'
+                  ? 'bg-slate-900 border-slate-800 text-white'
+                  : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              <h3 className="text-lg font-bold mb-2">Create New Application</h3>
+              <p className="text-xs opacity-70 mb-4">
+                Each project receives an isolated user population, dedicated authentication events,
+                and its own customizable hosted login page.
               </p>
 
               {createError && (
-                <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
+                <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-400">
                   {createError}
                 </div>
               )}
 
               <form onSubmit={handleCreateProject} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Project Name
+                  <label className="block text-xs font-semibold mb-1 opacity-80">
+                    Application Name
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Acme Workspace, ShopFlow"
+                    placeholder="e.g. Acme Cloud, Finflow App"
                     value={newProjectName}
                     onChange={(e) => setNewProjectName(e.target.value)}
-                    className="w-full text-sm px-3.5 py-2.5 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full text-sm px-3.5 py-2.5 border rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
 
@@ -390,14 +577,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <button
                     type="button"
                     onClick={() => setCreateModalOpen(false)}
-                    className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                    className="px-4 py-2 rounded-lg text-xs font-semibold opacity-70 hover:opacity-100"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={creatingProject}
-                    className="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+                    className="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50"
                   >
                     {creatingProject ? 'Creating...' : 'Create Project'}
                   </button>

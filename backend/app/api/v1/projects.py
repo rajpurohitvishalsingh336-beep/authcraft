@@ -214,6 +214,116 @@ def delete_project(
     return {"message": f"Project '{project.name}' and all associated users/events deleted successfully."}
 
 
+@router.post("/{project_id}/duplicate", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
+def duplicate_project(
+    project_id: str,
+    current_dev: Developer = Depends(get_current_developer),
+    db: Session = Depends(get_db),
+):
+    """Duplicate an existing project and its visual configuration as a new draft project."""
+    existing_count = db.query(Project).filter(Project.developer_id == current_dev.id).count()
+    if existing_count >= 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Project quota exceeded. You have reached the maximum allowed projects on your plan.",
+        )
+
+    source = (
+        db.query(Project)
+        .filter(Project.id == project_id, Project.developer_id == current_dev.id)
+        .first()
+    )
+    if not source:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found or you do not have permission to access it.",
+        )
+
+    new_project_id = generate_project_id()
+    new_name = f"{source.name} (Copy)"
+    new_slug = generate_slug(new_name)
+
+    new_project = Project(
+        id=new_project_id,
+        developer_id=current_dev.id,
+        name=new_name,
+        slug=new_slug,
+        description=source.description,
+        status="active",
+        is_published=False,
+        published_version=0,
+        allow_registration=source.allow_registration,
+        require_email_verification=source.require_email_verification,
+        session_duration_minutes=source.session_duration_minutes,
+        password_min_length=source.password_min_length,
+    )
+    db.add(new_project)
+    db.flush()
+
+    # Find source config to clone
+    source_config = (
+        db.query(ProjectConfiguration)
+        .filter(ProjectConfiguration.project_id == source.id)
+        .order_by(ProjectConfiguration.created_at.desc())
+        .first()
+    )
+
+    if source_config:
+        new_config = ProjectConfiguration(
+            project_id=new_project.id,
+            version=1,
+            is_published=False,
+            theme_mode=source_config.theme_mode,
+            layout_id=source_config.layout_id,
+            layout_tokens=source_config.layout_tokens,
+            logo_url=source_config.logo_url,
+            primary_color=source_config.primary_color,
+            secondary_color=source_config.secondary_color,
+            background_color=source_config.background_color,
+            card_background_color=source_config.card_background_color,
+            text_color=source_config.text_color,
+            border_radius=source_config.border_radius,
+            font_family=source_config.font_family,
+            custom_css_vars=source_config.custom_css_vars,
+            brand_name=new_name,
+            page_title=f"Sign in to {new_name}",
+            welcome_message=source_config.welcome_message,
+            login_text=source_config.login_text,
+            register_text=source_config.register_text,
+            email_label=source_config.email_label,
+            password_label=source_config.password_label,
+            footer_text=source_config.footer_text,
+            show_password_toggle=source_config.show_password_toggle,
+            show_forgot_password=source_config.show_forgot_password,
+            show_registration=source_config.show_registration,
+            button_style=source_config.button_style,
+            input_style=source_config.input_style,
+            layout_style=source_config.layout_style,
+            template_name=source_config.template_name,
+            form_width=source_config.form_width,
+            form_alignment=source_config.form_alignment,
+        )
+    else:
+        new_config = ProjectConfiguration(
+            project_id=new_project.id,
+            version=1,
+            is_published=False,
+            brand_name=new_name,
+            page_title=f"Sign in to {new_name}",
+        )
+    db.add(new_config)
+
+    # Clone origins and redirects
+    for o in source.allowed_origins:
+        db.add(AllowedOrigin(project_id=new_project.id, origin=o.origin))
+    for r in source.allowed_redirect_uris:
+        db.add(AllowedRedirectUri(project_id=new_project.id, redirect_uri=r.redirect_uri))
+
+    db.commit()
+    db.refresh(new_project)
+    return format_project_response(new_project, db)
+
+
 @router.post("/{project_id}/publish", response_model=ProjectResponse)
 def publish_project(
     project_id: str,
