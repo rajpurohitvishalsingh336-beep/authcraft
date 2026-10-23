@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 from app.api.v1.api_router import api_router
 from app.core.config import settings
@@ -17,12 +17,32 @@ logging.basicConfig(
 logger = logging.getLogger("authcraft")
 
 
+def auto_migrate_schema(db_engine):
+    """Ensure newly added columns exist in database tables automatically."""
+    try:
+        inspector = inspect(db_engine)
+        if inspector.has_table("project_configurations"):
+            cols = [c["name"] for c in inspector.get_columns("project_configurations")]
+            with db_engine.connect() as conn:
+                if "layout_id" not in cols:
+                    conn.execute(text("ALTER TABLE project_configurations ADD COLUMN layout_id VARCHAR(50) DEFAULT 'minimal-clean-01'"))
+                    conn.commit()
+                    logger.info("Migrated project_configurations table: added layout_id column.")
+                if "layout_tokens" not in cols:
+                    conn.execute(text("ALTER TABLE project_configurations ADD COLUMN layout_tokens TEXT"))
+                    conn.commit()
+                    logger.info("Migrated project_configurations table: added layout_tokens column.")
+    except Exception as e:
+        logger.warning(f"Auto-migration notice: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize database tables on startup
     logger.info("Initializing AuthCraft database schema...")
     Base.metadata.create_all(bind=engine)
-    logger.info("Database schema initialized successfully.")
+    auto_migrate_schema(engine)
+    logger.info("Database schema initialized and migrated successfully.")
     yield
     logger.info("AuthCraft backend shutting down.")
 
