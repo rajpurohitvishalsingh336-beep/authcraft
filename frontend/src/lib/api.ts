@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 
 export class ApiError extends Error {
   status: number;
@@ -11,7 +11,7 @@ export class ApiError extends Error {
   }
 }
 
-function getStoredToken(): string | null {
+export function getStoredToken(): string | null {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem('authcraft_token');
 }
@@ -46,6 +46,7 @@ export async function apiRequest<T = any>(
   const token = getStoredToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'bypass-tunnel-reminder': '1',
     ...(options.headers as Record<string, string>),
   };
 
@@ -53,7 +54,9 @@ export async function apiRequest<T = any>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
+  const cleanBase = API_BASE.replace(/\/+$/, '');
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = endpoint.startsWith('http') ? endpoint : `${cleanBase}${cleanEndpoint}`;
 
   const res = await fetch(url, {
     ...options,

@@ -38,6 +38,7 @@ import {
   getStoredActiveProjectId,
   setStoredActiveProjectId,
   setStoredToken,
+  getStoredToken,
 } from '@/lib/api';
 import { Developer, Project } from '@/lib/types';
 
@@ -73,6 +74,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProject, setActiveProjectState] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -85,7 +87,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [dashboardTheme, setDashboardTheme] = useState<'light' | 'dark'>('light');
 
   const fetchInitialData = async () => {
+    const token = getStoredToken();
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
     try {
+      setLoading(true);
+      setFetchError(null);
       const dev = await apiRequest<Developer>('/auth/me');
       setDeveloper(dev);
 
@@ -107,6 +117,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       if (err.status === 401 || err.status === 403) {
         setStoredToken(null);
         router.push('/login');
+      } else {
+        setFetchError(
+          err.message || 'Unable to connect to the AuthCraft backend server. Please check that the server is online.'
+        );
       }
     } finally {
       setLoading(false);
@@ -503,6 +517,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </button>
             </div>
           </header>
+
+          {/* Connection / Fetch Error Alert */}
+          {fetchError && (
+            <div className="m-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0" />
+                <div>
+                  <span className="font-bold">Backend Communication Notice:</span> {fetchError}
+                </div>
+              </div>
+              <button
+                onClick={() => fetchInitialData()}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition-all shrink-0"
+              >
+                Retry Connection
+              </button>
+            </div>
+          )}
 
           {/* Empty Workspace Onboarding Banner if projects.length === 0 */}
           {projects.length === 0 && !loading && (
