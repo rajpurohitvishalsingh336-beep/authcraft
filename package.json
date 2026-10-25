@@ -1,0 +1,10 @@
+{
+  "name": "authcraft-platform",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "build": "cd frontend && pnpm run build",
+    "start": "cd frontend && pnpm run start",
+    "dev": "cd frontend && pnpm run dev"
+  }
+}
