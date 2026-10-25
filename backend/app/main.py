@@ -32,6 +32,17 @@ def auto_migrate_schema(db_engine):
                     conn.execute(text("ALTER TABLE project_configurations ADD COLUMN layout_tokens TEXT"))
                     conn.commit()
                     logger.info("Migrated project_configurations table: added layout_tokens column.")
+                if "allow_otp_login" not in cols:
+                    conn.execute(text("ALTER TABLE project_configurations ADD COLUMN allow_otp_login BOOLEAN DEFAULT 1"))
+                    conn.commit()
+                    logger.info("Migrated project_configurations table: added allow_otp_login column.")
+        if inspector.has_table("projects"):
+            cols = [c["name"] for c in inspector.get_columns("projects")]
+            with db_engine.connect() as conn:
+                if "allow_otp_login" not in cols:
+                    conn.execute(text("ALTER TABLE projects ADD COLUMN allow_otp_login BOOLEAN DEFAULT 1"))
+                    conn.commit()
+                    logger.info("Migrated projects table: added allow_otp_login column.")
     except Exception as e:
         logger.warning(f"Auto-migration notice: {e}")
 

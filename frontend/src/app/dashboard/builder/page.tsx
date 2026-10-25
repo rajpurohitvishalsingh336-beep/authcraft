@@ -80,6 +80,7 @@ export default function VisualBuilderPage() {
     show_password_toggle: true,
     show_forgot_password: true,
     show_registration: true,
+    allow_otp_login: true,
     layout_id: 'minimal-clean-01',
     layout_tokens: {},
   });
@@ -876,6 +877,18 @@ export default function VisualBuilderPage() {
                     className="rounded text-indigo-600 focus:ring-0"
                   />
                   <span>Allow User Self-Registration</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={config.allow_otp_login ?? true}
+                    onChange={(e) =>
+                      pushConfigChange({ ...config, allow_otp_login: e.target.checked })
+                    }
+                    className="rounded text-indigo-600 focus:ring-0"
+                  />
+                  <span>Allow 1-Click Email OTP (Passwordless Login)</span>
+                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded-full font-bold">New</span>
                 </label>
               </div>
             </div>

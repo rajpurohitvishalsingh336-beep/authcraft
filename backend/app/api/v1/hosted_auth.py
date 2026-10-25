@@ -11,8 +11,10 @@ from app.core.database import get_db
 from app.core.security import (
     create_access_token,
     decode_access_token,
+    generate_numeric_otp,
     generate_secure_token,
     get_password_hash,
+    hash_otp,
     hash_token,
     verify_password,
 )
@@ -28,8 +30,11 @@ from app.schemas.application_user import (
     UserRegisterRequest,
     UserResetPasswordRequest,
     UserResponse,
+    UserSendOTPRequest,
     UserVerifyEmailRequest,
+    UserVerifyOTPRequest,
 )
+from app.schemas.developer import OTPSendResponse
 from app.services.audit_service import AuditService
 from app.services.email_service import EmailService
 
@@ -649,3 +654,215 @@ def verify_email_user(
     db.commit()
 
     return {"message": "Email address successfully verified. You may now log in."}
+
+
+@router.post("/projects/{project_id}/auth/otp/send", response_model=OTPSendResponse)
+def send_hosted_user_otp(
+    project_id: str,
+    req: UserSendOTPRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Generate and dispatch a 6-digit numeric OTP to an end user's email for passwordless login.
+    """
+    project = (
+        db.query(Project)
+        .filter((Project.id == project_id) | (Project.slug == project_id))
+        .first()
+    )
+    if not project or project.status != "active":
+        raise HTTPException(status_code=404, detail="Project not found or inactive.")
+
+    if hasattr(project, "allow_otp_login") and not project.allow_otp_login:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP / Passwordless login is disabled for this project.",
+        )
+
+    email_clean = req.email.strip().lower()
+    user = (
+        db.query(ApplicationUser)
+        .filter(ApplicationUser.project_id == project.id, ApplicationUser.email == email_clean)
+        .first()
+    )
+
+    if not user:
+        if not project.allow_registration:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New user registration is disabled for this project.",
+            )
+        # Seamless passwordless account creation
+        user = ApplicationUser(
+            project_id=project.id,
+            email=email_clean,
+            password_hash=get_password_hash(generate_secure_token(24)),
+            is_active=True,
+            is_verified=True,
+        )
+        db.add(user)
+        db.flush()
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account has been deactivated. Please contact support.",
+        )
+
+    # Invalidate older unused OTPs for this user in this project
+    db.query(VerificationToken).filter(
+        VerificationToken.token_type == "app_user_otp_login",
+        VerificationToken.target_id == user.id,
+        VerificationToken.project_id == project.id,
+        VerificationToken.is_used == False,
+    ).update({"is_used": True})
+
+    otp_code = generate_numeric_otp(settings.OTP_LENGTH)
+    token_rec = VerificationToken(
+        token_type="app_user_otp_login",
+        target_id=user.id,
+        project_id=project.id,
+        token_hash=hash_otp(user.id, otp_code),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES),
+    )
+    db.add(token_rec)
+    db.commit()
+
+    # Dispatch email
+    EmailService.send_otp_email(
+        to_email=user.email,
+        otp_code=otp_code,
+        project_name=project.name,
+        is_developer=False,
+    )
+
+    return OTPSendResponse(
+        message="One-time password (OTP) sent successfully.",
+        email=user.email,
+        expires_in_minutes=settings.OTP_EXPIRE_MINUTES,
+        dev_otp=otp_code if settings.DEV_EMAIL_MODE else None,
+    )
+
+
+@router.post("/projects/{project_id}/auth/otp/verify", response_model=UserAuthSuccessResponse)
+def verify_hosted_user_otp(
+    project_id: str,
+    req: UserVerifyOTPRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """
+    Verify 6-digit OTP code, authenticate application user, and issue user session.
+    """
+    project = (
+        db.query(Project)
+        .filter((Project.id == project_id) | (Project.slug == project_id))
+        .first()
+    )
+    if not project or project.status != "active":
+        raise HTTPException(status_code=404, detail="Project not found or inactive.")
+
+    email_clean = req.email.strip().lower()
+    user = (
+        db.query(ApplicationUser)
+        .filter(ApplicationUser.project_id == project.id, ApplicationUser.email == email_clean)
+        .first()
+    )
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or verification code.",
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is disabled. Please contact support.",
+        )
+
+    otp_hash = hash_otp(user.id, req.otp.strip())
+    now = datetime.now(timezone.utc)
+    token_rec = (
+        db.query(VerificationToken)
+        .filter(
+            VerificationToken.token_type == "app_user_otp_login",
+            VerificationToken.target_id == user.id,
+            VerificationToken.project_id == project.id,
+            VerificationToken.token_hash == otp_hash,
+            VerificationToken.is_used == False,
+            VerificationToken.expires_at > now,
+        )
+        .first()
+    )
+
+    if not token_rec:
+        AuditService.record_event(
+            db=db,
+            project_id=project.id,
+            event_type="otp_login_failed",
+            status="failure",
+            email_attempted=user.email,
+            user_id=user.id,
+            ip_address=get_client_ip(request),
+            user_agent=get_client_user_agent(request),
+            failure_reason="Invalid or expired OTP",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired OTP code. Please request a new one.",
+        )
+
+    # Consume OTP
+    token_rec.is_used = True
+    user.is_verified = True
+    user.last_login_at = now
+
+    # Issue session
+    session_token = generate_secure_token(48)
+    expires_at = now + timedelta(minutes=project.session_duration_minutes)
+    user_session = UserSession(
+        user_id=user.id,
+        project_id=project.id,
+        session_token_hash=hash_token(session_token),
+        expires_at=expires_at,
+        ip_address=get_client_ip(request),
+        user_agent=get_client_user_agent(request),
+    )
+    db.add(user_session)
+
+    # Log audit event
+    AuditService.record_event(
+        db=db,
+        project_id=project.id,
+        event_type="login_success_otp",
+        status="success",
+        email_attempted=user.email,
+        user_id=user.id,
+        ip_address=get_client_ip(request),
+        user_agent=get_client_user_agent(request),
+    )
+
+    db.commit()
+
+    # Set secure cookie
+    response.set_cookie(
+        key="authcraft_user_session",
+        value=session_token,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        max_age=project.session_duration_minutes * 60,
+        path="/",
+        domain=settings.COOKIE_DOMAIN,
+    )
+
+    validated_redirect = validate_redirect_uri(db, project.id, req.redirect_uri)
+
+    return UserAuthSuccessResponse(
+        message="Authentication successful via OTP.",
+        user=UserResponse.model_validate(user),
+        session_token=session_token,
+        redirect_uri=validated_redirect,
+    )

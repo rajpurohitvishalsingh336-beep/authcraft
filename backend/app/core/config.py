@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 1 day
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 15  # 15 min short-lived
     EMAIL_VERIFICATION_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    OTP_EXPIRE_MINUTES: int = 10  # 10 min OTP lifespan
+    OTP_LENGTH: int = 6  # 6-digit numeric OTP
 
     # Argon2id parameters (RFC 9106 recommended)
     ARGON2_TIME_COST: int = 3

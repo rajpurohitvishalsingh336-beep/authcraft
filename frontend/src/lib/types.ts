@@ -28,6 +28,7 @@ export interface Project {
   is_published: boolean;
   published_version: number;
   allow_registration: boolean;
+  allow_otp_login?: boolean;
   require_email_verification: boolean;
   session_duration_minutes: number;
   password_min_length: number;
@@ -71,6 +72,7 @@ export interface ProjectConfiguration {
   show_password_toggle: boolean;
   show_forgot_password: boolean;
   show_registration: boolean;
+  allow_otp_login?: boolean;
   custom_css_vars?: string | null;
   layout_id?: string;
   layout_tokens?: Record<string, any>;
@@ -105,6 +107,7 @@ export interface PublicProjectConfig extends ProjectConfiguration {
   project_name?: string;
   project_slug?: string;
   allow_registration?: boolean;
+  allow_otp_login?: boolean;
   require_email_verification?: boolean;
   password_min_length?: number;
   message?: string;

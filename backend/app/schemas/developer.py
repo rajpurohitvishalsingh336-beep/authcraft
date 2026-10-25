@@ -32,6 +32,22 @@ class DeveloperEmailVerifyRequest(BaseModel):
     token: str
 
 
+class DeveloperSendOTPRequest(BaseModel):
+    email: EmailStr
+
+
+class DeveloperVerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(..., min_length=6, max_length=6, description="6-digit numeric OTP")
+
+
+class OTPSendResponse(BaseModel):
+    message: str
+    email: str
+    expires_in_minutes: int
+    dev_otp: Optional[str] = None  # Available in dev mode for easy local testing
+
+
 class DeveloperResponse(BaseModel):
     id: str
     email: str

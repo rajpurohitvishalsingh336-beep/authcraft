@@ -86,6 +86,36 @@ class EmailService:
         )
 
     @staticmethod
+    def send_otp_email(to_email: str, otp_code: str, project_name: Optional[str] = None, is_developer: bool = True) -> bool:
+        app_title = project_name if project_name else settings.PROJECT_NAME
+        subject = f"{otp_code} is your {app_title} verification code"
+        body_text = (
+            f"Hello,\n\n"
+            f"Your one-time verification code (OTP) for {app_title} is:\n\n"
+            f"  >>> {otp_code} <<<\n\n"
+            f"This code will expire in {settings.OTP_EXPIRE_MINUTES} minutes.\n"
+            f"If you did not request this code, please ignore this email or review your account security.\n\n"
+            f"— The {app_title} Security Team"
+        )
+        body_html = f"""
+        <div style="font-family: sans-serif; max-width: 480px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+            <h2 style="color: #4f46e5; margin-bottom: 12px;">{app_title}</h2>
+            <p style="color: #334155; font-size: 14px; line-height: 1.5;">Your one-time verification code (OTP) is:</p>
+            <div style="background: #f1f5f9; padding: 16px; border-radius: 8px; text-align: center; font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #1e293b; margin: 16px 0;">
+                {otp_code}
+            </div>
+            <p style="color: #64748b; font-size: 12px;">Valid for {settings.OTP_EXPIRE_MINUTES} minutes. Do not share this code with anyone.</p>
+        </div>
+        """
+        return EmailService.send_email(
+            to_email=to_email,
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
+            metadata={"otp": otp_code, "action": "otp_verification", "is_developer": is_developer},
+        )
+
+    @staticmethod
     def get_dev_outbox(recipient: Optional[str] = None) -> List[Dict]:
         """Retrieve recent emails sent in dev mode (for testing and local dev inspection)."""
         if recipient:

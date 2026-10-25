@@ -9,10 +9,12 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
     create_access_token,
+    generate_numeric_otp,
     generate_project_id,
     generate_secure_token,
     generate_slug,
     get_password_hash,
+    hash_otp,
     hash_token,
     verify_password,
 )
@@ -28,6 +30,9 @@ from app.schemas.developer import (
     DeveloperPasswordResetRequest,
     DeveloperRegisterRequest,
     DeveloperResponse,
+    DeveloperSendOTPRequest,
+    DeveloperVerifyOTPRequest,
+    OTPSendResponse,
     TokenResponse,
 )
 from app.services.email_service import EmailService
@@ -362,3 +367,164 @@ def get_development_outbox(
             detail="Dev mailbox only available in development mode.",
         )
     return EmailService.get_dev_outbox(recipient)
+
+
+@router.post("/otp/send", response_model=OTPSendResponse)
+def send_developer_otp(
+    req: DeveloperSendOTPRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Generate and dispatch a 6-digit numeric OTP to the developer's registered email.
+    """
+    email_clean = req.email.strip().lower()
+    developer = db.query(Developer).filter(Developer.email == email_clean).first()
+    if not developer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No developer account found with this email address. Please register first.",
+        )
+
+    if not developer.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is disabled. Please contact support.",
+        )
+
+    # Invalidate any existing unused OTPs for this developer
+    db.query(VerificationToken).filter(
+        VerificationToken.token_type == "developer_otp_login",
+        VerificationToken.target_id == developer.id,
+        VerificationToken.is_used == False,
+    ).update({"is_used": True})
+
+    # Generate 6-digit numeric OTP
+    otp_code = generate_numeric_otp(settings.OTP_LENGTH)
+    token_rec = VerificationToken(
+        token_type="developer_otp_login",
+        target_id=developer.id,
+        token_hash=hash_otp(developer.id, otp_code),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES),
+    )
+    db.add(token_rec)
+    db.commit()
+
+    # Dispatch email
+    EmailService.send_otp_email(
+        to_email=developer.email,
+        otp_code=otp_code,
+        project_name="AuthCraft Developer Portal",
+        is_developer=True,
+    )
+
+    return OTPSendResponse(
+        message="One-time password (OTP) sent successfully.",
+        email=developer.email,
+        expires_in_minutes=settings.OTP_EXPIRE_MINUTES,
+        dev_otp=otp_code if settings.DEV_EMAIL_MODE else None,
+    )
+
+
+@router.post("/otp/verify", response_model=TokenResponse)
+def verify_developer_otp(
+    req: DeveloperVerifyOTPRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """
+    Verify the 6-digit OTP and authenticate the developer.
+    """
+    email_clean = req.email.strip().lower()
+    developer = db.query(Developer).filter(Developer.email == email_clean).first()
+    if not developer:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or verification code.",
+        )
+
+    if not developer.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is disabled. Please contact support.",
+        )
+
+    otp_hash = hash_otp(developer.id, req.otp.strip())
+    now = datetime.now(timezone.utc)
+    token_rec = (
+        db.query(VerificationToken)
+        .filter(
+            VerificationToken.token_type == "developer_otp_login",
+            VerificationToken.target_id == developer.id,
+            VerificationToken.token_hash == otp_hash,
+            VerificationToken.is_used == False,
+            VerificationToken.expires_at > now,
+        )
+        .first()
+    )
+
+    if not token_rec:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired OTP code. Please request a new code.",
+        )
+
+    # Mark OTP as consumed
+    token_rec.is_used = True
+    if not developer.is_verified:
+        developer.is_verified = True
+    db.commit()
+
+    # Create signed JWT token
+    token = create_access_token(
+        subject=developer.id,
+        token_type="developer",
+        extra_claims={"email": developer.email, "name": developer.full_name},
+    )
+
+    # Store hashed session
+    session_rec = DeveloperSession(
+        developer_id=developer.id,
+        session_token_hash=hash_token(token),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        ip_address=get_client_ip(request),
+        user_agent=get_client_user_agent(request),
+    )
+    db.add(session_rec)
+    db.commit()
+
+    # Set secure HTTP-only cookie
+    response.set_cookie(
+        key="authcraft_dev_session",
+        value=token,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+        domain=settings.COOKIE_DOMAIN,
+    )
+
+    return TokenResponse(
+        access_token=token,
+        developer=DeveloperResponse.model_validate(developer),
+    )
+
+
+@router.get("/otp/latest")
+def get_latest_otp(
+    email: str,
+    db: Session = Depends(get_db),
+):
+    """Retrieve the latest valid OTP in dev mode for quick testing."""
+    if not settings.DEV_EMAIL_MODE:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only available in dev mode")
+    email_clean = email.strip().lower()
+    developer = db.query(Developer).filter(Developer.email == email_clean).first()
+    if not developer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Developer not found")
+
+    outbox = EmailService.get_dev_outbox(developer.email)
+    otp_emails = [e for e in outbox if e.get("metadata", {}).get("action") == "otp_verification"]
+    latest_otp = otp_emails[-1]["metadata"].get("otp") if otp_emails else None
+    return {"email": developer.email, "latest_otp": latest_otp}

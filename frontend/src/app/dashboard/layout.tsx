@@ -32,6 +32,9 @@ import {
   Bell,
   CheckCircle2,
   FolderPlus,
+  Share2,
+  Code2,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   apiRequest,
@@ -210,6 +213,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const getBreadcrumbTitle = () => {
     if (pathname === '/dashboard') return 'Overview';
     if (pathname.includes('/builder')) return 'Visual Login Builder (150 Layouts)';
+    if (pathname.includes('/presentations')) return 'AI Presentation Studio (PPTX)';
+    if (pathname.includes('/workflows')) return 'Interactive Workflow Automation';
+    if (pathname.includes('/developer')) return 'Developer Platform & APIs';
+    if (pathname.includes('/security')) return 'Security Intelligence Center';
     if (pathname.includes('/projects')) return 'My Applications';
     if (pathname.includes('/users')) return 'End-User Directory';
     if (pathname.includes('/events')) return 'Authentication Audit Log';
@@ -222,7 +229,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const navItems = [
     { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
     { label: 'My Projects', href: '/dashboard/projects', icon: Layers },
-    { label: 'Login Page Builder', href: '/dashboard/builder', icon: Palette, badge: '150 Designs' },
+    { label: 'Login Studio (150)', href: '/dashboard/builder', icon: Palette, badge: '150 Designs' },
+    { label: 'Presentation Studio', href: '/dashboard/presentations', icon: Sparkles, badge: 'AI PPTX' },
+    { label: 'Interactive Workflows', href: '/dashboard/workflows', icon: Share2, badge: 'Flow' },
+    { label: 'Developer Platform', href: '/dashboard/developer', icon: Code2, badge: 'APIs' },
+    { label: 'Security Intelligence', href: '/dashboard/security', icon: ShieldAlert, badge: 'Radar' },
     { label: 'Users & Directory', href: '/dashboard/users', icon: Users },
     { label: 'Authentication Events', href: '/dashboard/events', icon: Activity },
     { label: 'Active Sessions', href: '/dashboard/sessions', icon: KeyRound },

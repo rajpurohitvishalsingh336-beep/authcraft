@@ -45,6 +45,7 @@ class ProjectConfigBase(BaseModel):
     show_password_toggle: bool = True
     show_forgot_password: bool = True
     show_registration: bool = True
+    allow_otp_login: bool = True
 
     # Custom styling
     custom_css_vars: Optional[str] = Field(None, max_length=2000)

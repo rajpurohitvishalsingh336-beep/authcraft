@@ -36,6 +36,12 @@ function HostedLoginForm({ slug }: { slug: string }) {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState<any | null>(null);
 
+  // OTP Login state
+  const [isOtpMode, setIsOtpMode] = useState(false);
+  const [otpStep, setOtpStep] = useState<'email' | 'code'>('email');
+  const [otpCode, setOtpCode] = useState('');
+  const [devOtp, setDevOtp] = useState<string | null>(null);
+
   useEffect(() => {
     const fetchConfig = async () => {
       try {
@@ -52,6 +58,38 @@ function HostedLoginForm({ slug }: { slug: string }) {
     fetchConfig();
   }, [slug]);
 
+  const handleSendOtp = async () => {
+    if (!projectConfig || !projectConfig.project_id) return;
+    if (!email.trim()) {
+      setAuthError('Please enter your email address to receive an OTP code.');
+      return;
+    }
+
+    setAuthError(null);
+    setSubmitting(true);
+
+    try {
+      const data = await apiRequest(
+        `/projects/${projectConfig.project_id}/auth/otp/send`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            email: email.trim(),
+            redirect_uri: redirectUri || null,
+          }),
+        }
+      );
+      if (data.dev_otp) {
+        setDevOtp(data.dev_otp);
+      }
+      setOtpStep('code');
+    } catch (err: any) {
+      setAuthError(err.message || 'Failed to send OTP code.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!projectConfig || !projectConfig.project_id) return;
@@ -60,17 +98,37 @@ function HostedLoginForm({ slug }: { slug: string }) {
     setSubmitting(true);
 
     try {
-      const res = await apiRequest(
-        `/projects/${projectConfig.project_id}/auth/login`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            email,
-            password,
-            redirect_uri: redirectUri || null,
-          }),
+      let res;
+      if (isOtpMode) {
+        if (otpCode.length !== 6) {
+          setAuthError('Please enter the 6-digit OTP code.');
+          setSubmitting(false);
+          return;
         }
-      );
+        res = await apiRequest(
+          `/projects/${projectConfig.project_id}/auth/otp/verify`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              email: email.trim(),
+              otp: otpCode.trim(),
+              redirect_uri: redirectUri || null,
+            }),
+          }
+        );
+      } else {
+        res = await apiRequest(
+          `/projects/${projectConfig.project_id}/auth/login`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              email,
+              password,
+              redirect_uri: redirectUri || null,
+            }),
+          }
+        );
+      }
 
       // Check if redirect URI is authorized
       if (res.redirect_uri) {
@@ -82,7 +140,7 @@ function HostedLoginForm({ slug }: { slug: string }) {
 
       setAuthSuccess(res);
     } catch (err: any) {
-      setAuthError(err.message || 'Invalid email or password.');
+      setAuthError(err.message || 'Authentication failed. Please check your details.');
     } finally {
       setSubmitting(false);
     }
@@ -191,6 +249,14 @@ function HostedLoginForm({ slug }: { slug: string }) {
       authSuccess={authSuccess}
       redirectUri={redirectUri}
       isBuilderPreview={false}
+      isOtpMode={isOtpMode}
+      setIsOtpMode={setIsOtpMode}
+      otpStep={otpStep}
+      setOtpStep={setOtpStep}
+      otpCode={otpCode}
+      setOtpCode={setOtpCode}
+      onSendOtp={handleSendOtp}
+      devOtp={devOtp}
       onSwitchMode={(targetMode) => {
         if (targetMode === 'register') {
           router.push(

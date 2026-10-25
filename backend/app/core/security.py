@@ -40,12 +40,25 @@ def generate_secure_token(length: int = 32) -> str:
     return secrets.token_urlsafe(length)
 
 
+def generate_numeric_otp(digits: int = 6) -> str:
+    """Generate a cryptographically secure numeric OTP."""
+    return "".join(secrets.choice(string.digits) for _ in range(digits))
+
+
 def hash_token(token: str) -> str:
     """
     Hash a high-entropy token using SHA-256 for safe database storage.
     Raw tokens are never stored in the database.
     """
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def hash_otp(target_id: str, otp: str) -> str:
+    """
+    Salt and hash a numeric OTP bound to target_id for rainbow-table resistant storage.
+    """
+    salted = f"{target_id}:{otp.strip()}".encode("utf-8")
+    return hashlib.sha256(salted).hexdigest()
 
 
 def create_access_token(
