@@ -12,6 +12,23 @@ class DeveloperRegisterRequest(BaseModel):
 class DeveloperLoginRequest(BaseModel):
     email: EmailStr
     password: str
+    two_step_code: Optional[str] = None
+    require_2step: Optional[bool] = None
+
+
+class Developer2StepVerifyRequest(BaseModel):
+    temp_token: str
+    otp: str = Field(..., min_length=6, max_length=6, description="6-digit verification code")
+    email: Optional[EmailStr] = None
+
+
+class Developer2StepResendRequest(BaseModel):
+    temp_token: str
+    email: Optional[EmailStr] = None
+
+
+class Developer2StepToggleRequest(BaseModel):
+    enabled: bool
 
 
 class DeveloperPasswordResetRequest(BaseModel):
@@ -54,12 +71,18 @@ class DeveloperResponse(BaseModel):
     full_name: str
     is_verified: bool
     is_active: bool
+    is_2step_enabled: Optional[bool] = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    developer: DeveloperResponse
+    access_token: Optional[str] = None
+    token_type: Optional[str] = "bearer"
+    developer: Optional[DeveloperResponse] = None
+    two_step_required: bool = False
+    temp_token: Optional[str] = None
+    email: Optional[str] = None
+    dev_otp: Optional[str] = None
+    message: Optional[str] = None

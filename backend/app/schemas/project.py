@@ -32,6 +32,7 @@ class ProjectCreateRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=500)
     allow_registration: bool = True
     allow_otp_login: bool = True
+    require_2step_verification: bool = False
     require_email_verification: bool = False
     session_duration_minutes: int = Field(1440, ge=15, le=43200)  # Between 15 mins and 30 days
     password_min_length: int = Field(8, ge=6, le=64)
@@ -43,6 +44,7 @@ class ProjectUpdateRequest(BaseModel):
     status: Optional[str] = Field(None, pattern="^(active|disabled)$")
     allow_registration: Optional[bool] = None
     allow_otp_login: Optional[bool] = None
+    require_2step_verification: Optional[bool] = None
     require_email_verification: Optional[bool] = None
     session_duration_minutes: Optional[int] = Field(None, ge=15, le=43200)
     password_min_length: Optional[int] = Field(None, ge=6, le=64)
@@ -58,6 +60,7 @@ class ProjectResponse(BaseModel):
     published_version: int
     allow_registration: bool
     allow_otp_login: bool = True
+    require_2step_verification: bool = False
     require_email_verification: bool
     session_duration_minutes: int
     password_min_length: int

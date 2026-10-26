@@ -24,6 +24,8 @@ from app.models.project_config import ProjectConfiguration
 from app.models.token import VerificationToken
 from app.models.user_session import UserSession
 from app.schemas.application_user import (
+    User2StepResendRequest,
+    User2StepVerifyRequest,
     UserAuthSuccessResponse,
     UserForgotPasswordRequest,
     UserLoginRequest,
@@ -205,6 +207,8 @@ def get_public_project_config(
         "show_password_toggle": config.show_password_toggle,
         "show_forgot_password": config.show_forgot_password,
         "show_registration": config.show_registration,
+        "allow_otp_login": getattr(project, "allow_otp_login", True),
+        "require_2step_verification": getattr(project, "require_2step_verification", False) or getattr(config, "require_2step_verification", False),
     }
 
 
@@ -349,7 +353,7 @@ def login_application_user(
     response: Response,
     db: Session = Depends(get_db),
 ):
-    """Authenticate an end user for a specific project."""
+    """Authenticate an end user for a specific project with optional Email 2-Step Verification."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project or project.status != "active":
         raise HTTPException(status_code=400, detail="Project not found or disabled.")
@@ -392,6 +396,85 @@ def login_application_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Email address must be verified before signing in.",
         )
+
+    # Check if Email 2-Step Verification is required or requested
+    needs_2step = (
+        req.require_2step is True
+        or (
+            req.require_2step is None
+            and (
+                getattr(project, "require_2step_verification", False) is True
+                or getattr(user, "is_2step_enabled", False) is True
+            )
+        )
+    )
+
+    if needs_2step and not req.two_step_code:
+        # Generate 6-digit numeric OTP for 2-step verification
+        otp_code = generate_numeric_otp(settings.OTP_LENGTH)
+        now = datetime.now(timezone.utc)
+        token_rec = VerificationToken(
+            token_type="app_user_2step_login",
+            target_id=user.id,
+            project_id=project.id,
+            token_hash=hash_otp(user.id, otp_code),
+            expires_at=now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES),
+        )
+        db.add(token_rec)
+        db.commit()
+
+        # Dispatch 2-step verification email
+        EmailService.send_2step_verification_email(
+            to_email=user.email,
+            otp_code=otp_code,
+            project_name=project.name,
+            is_developer=False,
+        )
+
+        # Issue short-lived 5-minute temporary token for Step 2
+        temp_token = create_access_token(
+            subject=user.id,
+            token_type="app_user_2step_pending",
+            expires_delta=timedelta(minutes=5),
+            extra_claims={
+                "project_id": project.id,
+                "email": user.email,
+                "role": "app_user_2step_pending",
+            },
+        )
+
+        return UserAuthSuccessResponse(
+            message="Step 2 of 2: A 6-digit verification code has been sent to your email. Enter the code to continue.",
+            two_step_required=True,
+            temp_token=temp_token,
+            email=user.email,
+            dev_otp=otp_code if settings.DEV_EMAIL_MODE else None,
+            redirect_uri=validated_redirect,
+        )
+
+    # If two_step_code was provided directly with password:
+    if req.two_step_code:
+        otp_hash = hash_otp(user.id, req.two_step_code.strip())
+        now = datetime.now(timezone.utc)
+        two_step_rec = (
+            db.query(VerificationToken)
+            .filter(
+                VerificationToken.token_type == "app_user_2step_login",
+                VerificationToken.target_id == user.id,
+                VerificationToken.project_id == project.id,
+                VerificationToken.token_hash == otp_hash,
+                VerificationToken.is_used == False,
+                VerificationToken.expires_at > now,
+            )
+            .first()
+        )
+        if not two_step_rec:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired 2-step verification code.",
+            )
+        two_step_rec.is_used = True
+        db.commit()
 
     # Update last login timestamp
     user.last_login_at = datetime.now(timezone.utc)
@@ -445,6 +528,202 @@ def login_application_user(
         session_token=token,
         redirect_uri=validated_redirect,
     )
+
+
+@router.post("/projects/{project_id}/auth/login/2step/verify", response_model=UserAuthSuccessResponse)
+def verify_application_user_2step(
+    project_id: str,
+    req: User2StepVerifyRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Verify the 6-digit Email 2-Step Verification code for an application user and finalize login."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project or project.status != "active":
+        raise HTTPException(status_code=400, detail="Project not found or disabled.")
+
+    payload = decode_access_token(req.temp_token)
+    if (
+        not payload
+        or payload.get("type") != "app_user_2step_pending"
+        or payload.get("project_id") != project_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired 2-step verification session. Please sign in again.",
+        )
+
+    user_id = payload.get("sub")
+    user = (
+        db.query(ApplicationUser)
+        .filter(ApplicationUser.id == user_id, ApplicationUser.project_id == project_id)
+        .first()
+    )
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account not found or deactivated.",
+        )
+
+    validated_redirect = validate_redirect_uri(db, project.id, req.redirect_uri)
+
+    otp_hash = hash_otp(user.id, req.otp.strip())
+    now = datetime.now(timezone.utc)
+    token_rec = (
+        db.query(VerificationToken)
+        .filter(
+            VerificationToken.token_type == "app_user_2step_login",
+            VerificationToken.target_id == user.id,
+            VerificationToken.project_id == project.id,
+            VerificationToken.token_hash == otp_hash,
+            VerificationToken.is_used == False,
+            VerificationToken.expires_at > now,
+        )
+        .first()
+    )
+    if not token_rec:
+        AuditService.record_event(
+            db=db,
+            project_id=project.id,
+            event_type="login_2step_failed",
+            status="failure",
+            email_attempted=user.email,
+            user_id=user.id,
+            ip_address=get_client_ip(request),
+            user_agent=get_client_user_agent(request),
+            failure_reason="Invalid or expired 2-step verification code",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired 6-digit verification code.",
+        )
+
+    # Mark code consumed
+    token_rec.is_used = True
+
+    # Update last login
+    user.last_login_at = datetime.now(timezone.utc)
+
+    # Issue session
+    token = create_access_token(
+        subject=user.id,
+        token_type="app_user",
+        expires_delta=timedelta(minutes=project.session_duration_minutes),
+        extra_claims={"project_id": project.id, "email": user.email},
+    )
+
+    session_rec = UserSession(
+        project_id=project.id,
+        user_id=user.id,
+        session_token_hash=hash_token(token),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=project.session_duration_minutes),
+        ip_address=get_client_ip(request),
+        user_agent=get_client_user_agent(request),
+    )
+    db.add(session_rec)
+
+    # Audit event
+    AuditService.record_event(
+        db=db,
+        project_id=project.id,
+        event_type="login_2step_success",
+        status="success",
+        email_attempted=user.email,
+        user_id=user.id,
+        ip_address=get_client_ip(request),
+        user_agent=get_client_user_agent(request),
+    )
+
+    db.commit()
+    db.refresh(user)
+
+    response.set_cookie(
+        key="authcraft_user_session",
+        value=token,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        max_age=project.session_duration_minutes * 60,
+        path="/",
+    )
+
+    return UserAuthSuccessResponse(
+        message="2-Step Verification complete. Sign in successful.",
+        user=UserResponse.model_validate(user),
+        session_token=token,
+        redirect_uri=validated_redirect,
+    )
+
+
+@router.post("/projects/{project_id}/auth/login/2step/resend")
+def resend_application_user_2step(
+    project_id: str,
+    req: User2StepResendRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Resend a fresh 6-digit Email 2-Step Verification code to the user."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project or project.status != "active":
+        raise HTTPException(status_code=400, detail="Project not found or disabled.")
+
+    payload = decode_access_token(req.temp_token)
+    if (
+        not payload
+        or payload.get("type") != "app_user_2step_pending"
+        or payload.get("project_id") != project_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired session. Please sign in again.",
+        )
+
+    user_id = payload.get("sub")
+    user = (
+        db.query(ApplicationUser)
+        .filter(ApplicationUser.id == user_id, ApplicationUser.project_id == project_id)
+        .first()
+    )
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account not found or deactivated.",
+        )
+
+    # Invalidate previous unused 2step tokens for this user
+    db.query(VerificationToken).filter(
+        VerificationToken.token_type == "app_user_2step_login",
+        VerificationToken.target_id == user.id,
+        VerificationToken.project_id == project.id,
+        VerificationToken.is_used == False,
+    ).update({"is_used": True})
+
+    # Generate new 6-digit OTP
+    otp_code = generate_numeric_otp(settings.OTP_LENGTH)
+    now = datetime.now(timezone.utc)
+    token_rec = VerificationToken(
+        token_type="app_user_2step_login",
+        target_id=user.id,
+        project_id=project.id,
+        token_hash=hash_otp(user.id, otp_code),
+        expires_at=now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES),
+    )
+    db.add(token_rec)
+    db.commit()
+
+    # Dispatch email
+    EmailService.send_2step_verification_email(
+        to_email=user.email,
+        otp_code=otp_code,
+        project_name=project.name,
+        is_developer=False,
+    )
+
+    return {
+        "message": "A new 6-digit verification code has been dispatched to your email address.",
+        "dev_otp": otp_code if settings.DEV_EMAIL_MODE else None,
+    }
 
 
 # 4. End-User Current Profile

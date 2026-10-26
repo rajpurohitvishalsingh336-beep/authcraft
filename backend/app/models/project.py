@@ -25,6 +25,7 @@ class Project(Base):
     # Auth configuration flags
     allow_registration = Column(Boolean, default=True, nullable=False)
     allow_otp_login = Column(Boolean, default=True, nullable=False)
+    require_2step_verification = Column(Boolean, default=False, nullable=False)
     require_email_verification = Column(Boolean, default=False, nullable=False)
     session_duration_minutes = Column(Integer, default=1440, nullable=False)
     password_min_length = Column(Integer, default=8, nullable=False)

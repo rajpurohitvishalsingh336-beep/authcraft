@@ -44,6 +44,7 @@ def format_project_response(project: Project, db: Session) -> ProjectResponse:
         published_version=project.published_version,
         allow_registration=project.allow_registration,
         allow_otp_login=getattr(project, "allow_otp_login", True),
+        require_2step_verification=getattr(project, "require_2step_verification", False),
         require_email_verification=project.require_email_verification,
         session_duration_minutes=project.session_duration_minutes,
         password_min_length=project.password_min_length,
@@ -101,6 +102,7 @@ def create_project(
         published_version=0,
         allow_registration=req.allow_registration,
         allow_otp_login=req.allow_otp_login,
+        require_2step_verification=getattr(req, "require_2step_verification", False),
         require_email_verification=req.require_email_verification,
         session_duration_minutes=req.session_duration_minutes,
         password_min_length=req.password_min_length,
@@ -183,6 +185,8 @@ def update_project(
         project.allow_registration = req.allow_registration
     if req.allow_otp_login is not None:
         project.allow_otp_login = req.allow_otp_login
+    if req.require_2step_verification is not None:
+        project.require_2step_verification = req.require_2step_verification
     if req.require_email_verification is not None:
         project.require_email_verification = req.require_email_verification
     if req.session_duration_minutes is not None:

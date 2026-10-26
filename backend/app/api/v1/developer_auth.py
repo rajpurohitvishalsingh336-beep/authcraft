@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
     create_access_token,
+    decode_access_token,
     generate_numeric_otp,
     generate_project_id,
     generate_secure_token,
@@ -23,6 +24,9 @@ from app.models.project import AllowedRedirectUri, Project
 from app.models.project_config import ProjectConfiguration
 from app.models.token import VerificationToken
 from app.schemas.developer import (
+    Developer2StepResendRequest,
+    Developer2StepToggleRequest,
+    Developer2StepVerifyRequest,
     DeveloperChangePasswordRequest,
     DeveloperEmailVerifyRequest,
     DeveloperLoginRequest,
@@ -162,6 +166,72 @@ def login_developer(
             detail="Account is disabled. Please contact support.",
         )
 
+    # Check if Email 2-Step Verification is required or requested
+    needs_2step = (
+        req.require_2step is True
+        or (req.require_2step is None and getattr(developer, "is_2step_enabled", False) is True)
+    )
+
+    if needs_2step and not req.two_step_code:
+        # Generate 6-digit numeric OTP for 2-step verification
+        otp_code = generate_numeric_otp(settings.OTP_LENGTH)
+        now = datetime.now(timezone.utc)
+        token_rec = VerificationToken(
+            token_type="developer_2step_login",
+            target_id=developer.id,
+            token_hash=hash_otp(developer.id, otp_code),
+            expires_at=now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES),
+        )
+        db.add(token_rec)
+        db.commit()
+
+        # Dispatch 2-step verification email
+        EmailService.send_2step_verification_email(
+            to_email=developer.email,
+            otp_code=otp_code,
+            project_name=settings.PROJECT_NAME,
+            is_developer=True,
+        )
+
+        # Issue short-lived 5-minute temporary token for Step 2
+        temp_token = create_access_token(
+            subject=developer.id,
+            token_type="developer_2step_pending",
+            expires_delta=timedelta(minutes=5),
+            extra_claims={"email": developer.email, "role": "developer_2step_pending"},
+        )
+
+        return TokenResponse(
+            two_step_required=True,
+            temp_token=temp_token,
+            email=developer.email,
+            dev_otp=otp_code if settings.DEV_EMAIL_MODE else None,
+            message="Step 2 of 2: A 6-digit verification code has been sent to your email. Enter the code to continue.",
+        )
+
+    # If two_step_code was provided directly with password:
+    if req.two_step_code:
+        otp_hash = hash_otp(developer.id, req.two_step_code.strip())
+        now = datetime.now(timezone.utc)
+        two_step_rec = (
+            db.query(VerificationToken)
+            .filter(
+                VerificationToken.token_type == "developer_2step_login",
+                VerificationToken.target_id == developer.id,
+                VerificationToken.token_hash == otp_hash,
+                VerificationToken.is_used == False,
+                VerificationToken.expires_at > now,
+            )
+            .first()
+        )
+        if not two_step_rec:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired 2-step verification code.",
+            )
+        two_step_rec.is_used = True
+        db.commit()
+
     # Create signed JWT token
     token = create_access_token(
         subject=developer.id,
@@ -198,6 +268,135 @@ def login_developer(
     )
 
 
+@router.post("/login/2step/verify", response_model=TokenResponse)
+def verify_developer_2step(
+    req: Developer2StepVerifyRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Verify the 6-digit Email 2-Step Verification code and finalize login."""
+    payload = decode_access_token(req.temp_token)
+    if not payload or payload.get("type") != "developer_2step_pending":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired 2-step verification session. Please sign in again.",
+        )
+
+    developer_id = payload.get("sub")
+    developer = db.query(Developer).filter(Developer.id == developer_id).first()
+    if not developer or not developer.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Developer account not found or inactive.",
+        )
+
+    otp_hash = hash_otp(developer.id, req.otp.strip())
+    now = datetime.now(timezone.utc)
+    token_rec = (
+        db.query(VerificationToken)
+        .filter(
+            VerificationToken.token_type == "developer_2step_login",
+            VerificationToken.target_id == developer.id,
+            VerificationToken.token_hash == otp_hash,
+            VerificationToken.is_used == False,
+            VerificationToken.expires_at > now,
+        )
+        .first()
+    )
+    if not token_rec:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired 6-digit verification code.",
+        )
+
+    # Mark code consumed
+    token_rec.is_used = True
+    db.commit()
+
+    # Create final signed JWT token
+    token = create_access_token(
+        subject=developer.id,
+        token_type="developer",
+        extra_claims={"email": developer.email, "name": developer.full_name},
+    )
+
+    # Store hashed session
+    session_rec = DeveloperSession(
+        developer_id=developer.id,
+        session_token_hash=hash_token(token),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        ip_address=get_client_ip(request),
+        user_agent=get_client_user_agent(request),
+    )
+    db.add(session_rec)
+    db.commit()
+
+    # Set secure HTTP-only cookie
+    response.set_cookie(
+        key="authcraft_dev_session",
+        value=token,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+        domain=settings.COOKIE_DOMAIN,
+    )
+
+    return TokenResponse(
+        access_token=token,
+        developer=DeveloperResponse.model_validate(developer),
+        message="2-Step Verification complete. Sign in successful.",
+    )
+
+
+@router.post("/login/2step/resend")
+def resend_developer_2step(
+    req: Developer2StepResendRequest,
+    db: Session = Depends(get_db),
+):
+    """Resend a fresh 6-digit Email 2-Step Verification code."""
+    payload = decode_access_token(req.temp_token)
+    if not payload or payload.get("type") != "developer_2step_pending":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired session. Please return to login.",
+        )
+
+    developer_id = payload.get("sub")
+    developer = db.query(Developer).filter(Developer.id == developer_id).first()
+    if not developer or not developer.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Developer account not found.",
+        )
+
+    otp_code = generate_numeric_otp(settings.OTP_LENGTH)
+    now = datetime.now(timezone.utc)
+    token_rec = VerificationToken(
+        token_type="developer_2step_login",
+        target_id=developer.id,
+        token_hash=hash_otp(developer.id, otp_code),
+        expires_at=now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES),
+    )
+    db.add(token_rec)
+    db.commit()
+
+    EmailService.send_2step_verification_email(
+        to_email=developer.email,
+        otp_code=otp_code,
+        project_name=settings.PROJECT_NAME,
+        is_developer=True,
+    )
+
+    return {
+        "status": "success",
+        "message": "A new 6-digit verification code has been dispatched to your email.",
+        "dev_otp": otp_code if settings.DEV_EMAIL_MODE else None,
+    }
+
+
 @router.post("/logout")
 def logout_developer(
     response: Response,
@@ -219,6 +418,22 @@ def get_current_developer_profile(
 ):
     """Retrieve authenticated developer profile."""
     return current_dev
+
+
+@router.put("/2step-settings")
+def update_developer_2step_settings(
+    req: Developer2StepToggleRequest,
+    current_dev: Developer = Depends(get_current_developer),
+    db: Session = Depends(get_db),
+):
+    """Toggle Email 2-Step Verification on or off for developer account."""
+    current_dev.is_2step_enabled = req.enabled
+    db.commit()
+    db.refresh(current_dev)
+    return {
+        "message": f"Email 2-Step Verification successfully {'enabled' if req.enabled else 'disabled'}.",
+        "is_2step_enabled": current_dev.is_2step_enabled,
+    }
 
 
 @router.post("/verify-email")

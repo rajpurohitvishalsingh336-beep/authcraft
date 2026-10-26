@@ -116,6 +116,44 @@ class EmailService:
         )
 
     @staticmethod
+    def send_2step_verification_email(to_email: str, otp_code: str, project_name: Optional[str] = None, is_developer: bool = True) -> bool:
+        app_title = project_name if project_name else settings.PROJECT_NAME
+        subject = f"{otp_code} is your {app_title} 2-Step Verification Code"
+        body_text = (
+            f"Hello,\n\n"
+            f"We received a sign-in attempt for your {app_title} account.\n"
+            f"Your 2-Step Verification code is:\n\n"
+            f"  >>> {otp_code} <<<\n\n"
+            f"This code will expire in {settings.OTP_EXPIRE_MINUTES} minutes.\n"
+            f"If this wasn't you, someone may have entered your password. Please secure your account immediately.\n\n"
+            f"— The {app_title} Security Team"
+        )
+        body_html = f"""
+        <div style="font-family: 'Inter', system-ui, sans-serif; max-width: 480px; margin: auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 16px; background: #ffffff;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+                <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #4f46e5;"></span>
+                <h2 style="color: #0f172a; margin: 0; font-size: 20px; font-weight: 800;">{app_title} 2-Step Verification</h2>
+            </div>
+            <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
+                A sign-in attempt was detected for your account. Enter this 6-digit security verification code to complete sign-in:
+            </p>
+            <div style="background: #f8fafc; border: 1.5px dashed #cbd5e1; padding: 18px; border-radius: 12px; text-align: center; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #4f46e5; margin: 16px 0;">
+                {otp_code}
+            </div>
+            <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin-top: 16px;">
+                Expires in {settings.OTP_EXPIRE_MINUTES} minutes. Never share this code with anyone. AuthCraft staff will never ask for your verification code.
+            </p>
+        </div>
+        """
+        return EmailService.send_email(
+            to_email=to_email,
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
+            metadata={"otp": otp_code, "action": "2step_verification", "is_developer": is_developer},
+        )
+
+    @staticmethod
     def get_dev_outbox(recipient: Optional[str] = None) -> List[Dict]:
         """Retrieve recent emails sent in dev mode (for testing and local dev inspection)."""
         if recipient:

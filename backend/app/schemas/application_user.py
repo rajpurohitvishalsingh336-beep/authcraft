@@ -14,6 +14,18 @@ class UserLoginRequest(BaseModel):
     email: EmailStr
     password: str
     redirect_uri: Optional[str] = None
+    two_step_code: Optional[str] = None
+    require_2step: Optional[bool] = None
+
+
+class User2StepVerifyRequest(BaseModel):
+    temp_token: str
+    otp: str = Field(..., min_length=6, max_length=6, description="6-digit verification code")
+    redirect_uri: Optional[str] = None
+
+
+class User2StepResendRequest(BaseModel):
+    temp_token: str
 
 
 class UserForgotPasswordRequest(BaseModel):
@@ -47,6 +59,7 @@ class UserResponse(BaseModel):
     display_name: Optional[str]
     is_verified: bool
     is_active: bool
+    is_2step_enabled: Optional[bool] = False
     last_login_at: Optional[datetime]
     created_at: datetime
 
@@ -55,6 +68,10 @@ class UserResponse(BaseModel):
 
 class UserAuthSuccessResponse(BaseModel):
     message: str
-    user: UserResponse
-    session_token: str
+    user: Optional[UserResponse] = None
+    session_token: Optional[str] = None
     redirect_uri: Optional[str] = None
+    two_step_required: bool = False
+    temp_token: Optional[str] = None
+    email: Optional[str] = None
+    dev_otp: Optional[str] = None

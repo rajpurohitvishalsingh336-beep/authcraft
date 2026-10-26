@@ -42,6 +42,21 @@ function HostedLoginForm({ slug }: { slug: string }) {
   const [otpCode, setOtpCode] = useState('');
   const [devOtp, setDevOtp] = useState<string | null>(null);
 
+  // 2-Step Verification state
+  const [twoStepRequired, setTwoStepRequired] = useState(false);
+  const [twoStepTempToken, setTwoStepTempToken] = useState<string | null>(null);
+  const [twoStepCode, setTwoStepCode] = useState('');
+  const [twoStepDevOtp, setTwoStepDevOtp] = useState<string | null>(null);
+  const [twoStepCountdown, setTwoStepCountdown] = useState(0);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (twoStepCountdown > 0) {
+      timer = setTimeout(() => setTwoStepCountdown((prev) => prev - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [twoStepCountdown]);
+
   useEffect(() => {
     const fetchConfig = async () => {
       try {
@@ -130,6 +145,15 @@ function HostedLoginForm({ slug }: { slug: string }) {
         );
       }
 
+      // Check if Email 2-Step Verification is required
+      if (res.two_step_required) {
+        setTwoStepRequired(true);
+        setTwoStepTempToken(res.temp_token);
+        setTwoStepDevOtp(res.dev_otp || null);
+        setTwoStepCountdown(60);
+        return;
+      }
+
       // Check if redirect URI is authorized
       if (res.redirect_uri) {
         const targetUrl = new URL(res.redirect_uri);
@@ -144,6 +168,77 @@ function HostedLoginForm({ slug }: { slug: string }) {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleVerify2Step = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!projectConfig?.project_id || !twoStepTempToken) return;
+    if (twoStepCode.length !== 6) {
+      setAuthError('Please enter the complete 6-digit verification code.');
+      return;
+    }
+
+    setAuthError(null);
+    setSubmitting(true);
+
+    try {
+      const res = await apiRequest(
+        `/projects/${projectConfig.project_id}/auth/login/2step/verify`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            temp_token: twoStepTempToken,
+            otp: twoStepCode.trim(),
+            redirect_uri: redirectUri || null,
+          }),
+        }
+      );
+
+      if (res.redirect_uri) {
+        const targetUrl = new URL(res.redirect_uri);
+        targetUrl.hash = `session_token=${res.session_token}`;
+        window.location.href = targetUrl.toString();
+        return;
+      }
+
+      setAuthSuccess(res);
+      setTwoStepRequired(false);
+    } catch (err: any) {
+      setAuthError(err.message || 'Invalid or expired 2-step verification code.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleResend2Step = async () => {
+    if (!projectConfig?.project_id || !twoStepTempToken || twoStepCountdown > 0) return;
+
+    setAuthError(null);
+    setSubmitting(true);
+
+    try {
+      const data = await apiRequest(
+        `/projects/${projectConfig.project_id}/auth/login/2step/resend`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ temp_token: twoStepTempToken }),
+        }
+      );
+      if (data.dev_otp) {
+        setTwoStepDevOtp(data.dev_otp);
+      }
+      setTwoStepCountdown(60);
+    } catch (err: any) {
+      setAuthError(err.message || 'Failed to resend code.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCancel2Step = () => {
+    setTwoStepRequired(false);
+    setTwoStepCode('');
+    setAuthError(null);
   };
 
   const handleLogout = async () => {
@@ -257,6 +352,14 @@ function HostedLoginForm({ slug }: { slug: string }) {
       setOtpCode={setOtpCode}
       onSendOtp={handleSendOtp}
       devOtp={devOtp}
+      twoStepRequired={twoStepRequired}
+      twoStepCode={twoStepCode}
+      setTwoStepCode={setTwoStepCode}
+      onVerify2Step={handleVerify2Step}
+      onResend2Step={handleResend2Step}
+      onCancel2Step={handleCancel2Step}
+      twoStepDevOtp={twoStepDevOtp}
+      twoStepCountdown={twoStepCountdown}
       onSwitchMode={(targetMode) => {
         if (targetMode === 'register') {
           router.push(

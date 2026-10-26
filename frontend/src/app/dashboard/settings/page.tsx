@@ -27,6 +27,7 @@ export default function ProjectSettingsPage() {
   // Form states initialized from activeProject
   const [allowRegistration, setAllowRegistration] = useState(activeProject?.allow_registration ?? true);
   const [allowOtpLogin, setAllowOtpLogin] = useState(activeProject?.allow_otp_login ?? true);
+  const [require2StepVerification, setRequire2StepVerification] = useState(activeProject?.require_2step_verification ?? false);
   const [requireVerification, setRequireVerification] = useState(activeProject?.require_email_verification ?? false);
   const [sessionHours, setSessionHours] = useState(Math.round((activeProject?.session_duration_minutes ?? 1440) / 60));
   const [passwordMinLength, setPasswordMinLength] = useState(activeProject?.password_min_length ?? 8);
@@ -43,6 +44,7 @@ export default function ProjectSettingsPage() {
         body: JSON.stringify({
           allow_registration: allowRegistration,
           allow_otp_login: allowOtpLogin,
+          require_2step_verification: require2StepVerification,
           require_email_verification: requireVerification,
           session_duration_minutes: sessionHours * 60,
           password_min_length: passwordMinLength,
@@ -203,6 +205,17 @@ export default function ProjectSettingsPage() {
               />
               <span>Allow 1-Click Email OTP (Passwordless Login for End Users)</span>
               <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full font-bold">New</span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700">
+              <input
+                type="checkbox"
+                checked={require2StepVerification}
+                onChange={(e) => setRequire2StepVerification(e.target.checked)}
+                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+              />
+              <span className="font-semibold text-slate-900">Enforce Email 2-Step Verification on Login (2FA)</span>
+              <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-bold">Security</span>
             </label>
 
             <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700">

@@ -36,6 +36,10 @@ def auto_migrate_schema(db_engine):
                     conn.execute(text("ALTER TABLE project_configurations ADD COLUMN allow_otp_login BOOLEAN DEFAULT 1"))
                     conn.commit()
                     logger.info("Migrated project_configurations table: added allow_otp_login column.")
+                if "require_2step_verification" not in cols:
+                    conn.execute(text("ALTER TABLE project_configurations ADD COLUMN require_2step_verification BOOLEAN DEFAULT 0"))
+                    conn.commit()
+                    logger.info("Migrated project_configurations table: added require_2step_verification column.")
         if inspector.has_table("projects"):
             cols = [c["name"] for c in inspector.get_columns("projects")]
             with db_engine.connect() as conn:
@@ -43,6 +47,24 @@ def auto_migrate_schema(db_engine):
                     conn.execute(text("ALTER TABLE projects ADD COLUMN allow_otp_login BOOLEAN DEFAULT 1"))
                     conn.commit()
                     logger.info("Migrated projects table: added allow_otp_login column.")
+                if "require_2step_verification" not in cols:
+                    conn.execute(text("ALTER TABLE projects ADD COLUMN require_2step_verification BOOLEAN DEFAULT 0"))
+                    conn.commit()
+                    logger.info("Migrated projects table: added require_2step_verification column.")
+        if inspector.has_table("developers"):
+            cols = [c["name"] for c in inspector.get_columns("developers")]
+            with db_engine.connect() as conn:
+                if "is_2step_enabled" not in cols:
+                    conn.execute(text("ALTER TABLE developers ADD COLUMN is_2step_enabled BOOLEAN DEFAULT 0"))
+                    conn.commit()
+                    logger.info("Migrated developers table: added is_2step_enabled column.")
+        if inspector.has_table("application_users"):
+            cols = [c["name"] for c in inspector.get_columns("application_users")]
+            with db_engine.connect() as conn:
+                if "is_2step_enabled" not in cols:
+                    conn.execute(text("ALTER TABLE application_users ADD COLUMN is_2step_enabled BOOLEAN DEFAULT 0"))
+                    conn.commit()
+                    logger.info("Migrated application_users table: added is_2step_enabled column.")
     except Exception as e:
         logger.warning(f"Auto-migration notice: {e}")
 

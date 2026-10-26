@@ -20,6 +20,7 @@ class ApplicationUser(Base):
     display_name = Column(String(100), nullable=True)
     is_verified = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    is_2step_enabled = Column(Boolean, default=False, nullable=False)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)

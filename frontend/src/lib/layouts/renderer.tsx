@@ -53,6 +53,14 @@ export interface LayoutRendererProps {
   setOtpCode?: (val: string) => void;
   onSendOtp?: () => void;
   devOtp?: string | null;
+  twoStepRequired?: boolean;
+  twoStepCode?: string;
+  setTwoStepCode?: (val: string) => void;
+  onVerify2Step?: (e: React.FormEvent) => void;
+  onResend2Step?: () => void;
+  onCancel2Step?: () => void;
+  twoStepDevOtp?: string | null;
+  twoStepCountdown?: number;
 }
 
 export function UniversalLayoutRenderer({
@@ -82,6 +90,14 @@ export function UniversalLayoutRenderer({
   setOtpCode,
   onSendOtp,
   devOtp = null,
+  twoStepRequired = false,
+  twoStepCode = '',
+  setTwoStepCode,
+  onVerify2Step,
+  onResend2Step,
+  onCancel2Step,
+  twoStepDevOtp = null,
+  twoStepCountdown = 0,
 }: LayoutRendererProps) {
   const tokens = layout.tokens;
 
@@ -220,8 +236,93 @@ export function UniversalLayoutRenderer({
         </div>
       )}
 
-      {/* Mode Switch for Password vs Email OTP (When allowed on login) */}
-      {mode === 'login' && config.allow_otp_login !== false && setIsOtpMode && (
+      {/* 2-STEP VERIFICATION MODE */}
+      {twoStepRequired ? (
+        <div className="space-y-4">
+          <div className="p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-lg text-xs space-y-1">
+            <div className="flex items-center gap-1.5 font-bold">
+              <ShieldCheck className="w-4 h-4 text-indigo-500" />
+              <span>Step 2 of 2: Email 2-Step Verification</span>
+            </div>
+            <p className="opacity-80">
+              We dispatched a 6-digit verification code to <strong>{email}</strong>. Enter it to finalize sign in.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold mb-1.5 opacity-80 text-center">
+              6-Digit Verification Code
+            </label>
+            <input
+              type="text"
+              maxLength={6}
+              autoFocus
+              required
+              placeholder="• • • • • •"
+              value={twoStepCode || ''}
+              onChange={(e) => setTwoStepCode && setTwoStepCode(e.target.value.replace(/\D/g, ''))}
+              className={`w-full py-2.5 text-center tracking-[0.5em] text-xl font-mono bg-transparent border rounded-lg transition-colors outline-none ${tokens.inputStyle}`}
+            />
+          </div>
+
+          {twoStepDevOtp && (
+            <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs flex items-center justify-between">
+              <span>Dev Code: <strong className="font-mono font-bold">{twoStepDevOtp}</strong></span>
+              <button
+                type="button"
+                onClick={() => setTwoStepCode && setTwoStepCode(twoStepDevOtp)}
+                className="px-2 py-0.5 bg-amber-600 text-white rounded text-[11px] font-bold"
+              >
+                Fill Code
+              </button>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={(e) => onVerify2Step ? onVerify2Step(e) : handleSubmit(e)}
+            disabled={submitting || (twoStepCode?.length !== 6)}
+            className={`w-full py-3 px-4 text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-200 ${tokens.primaryBtn}`}
+          >
+            {submitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Verifying...</span>
+              </>
+            ) : (
+              <>
+                <span>Complete Sign In</span>
+                <ShieldCheck className="w-4 h-4" />
+              </>
+            )}
+          </button>
+
+          <div className="flex items-center justify-between pt-1 text-xs opacity-80">
+            <button
+              type="button"
+              onClick={onCancel2Step}
+              className="hover:underline text-xs"
+            >
+              ← Back to login
+            </button>
+            {twoStepCountdown && twoStepCountdown > 0 ? (
+              <span>Resend in {twoStepCountdown}s</span>
+            ) : (
+              <button
+                type="button"
+                onClick={onResend2Step}
+                className="hover:underline text-xs font-semibold"
+                style={{ color: tokens.accentColor }}
+              >
+                Resend code
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Mode Switch for Password vs Email OTP (When allowed on login) */}
+          {mode === 'login' && config.allow_otp_login !== false && setIsOtpMode && (
         <div className="grid grid-cols-2 p-1 bg-black/5 dark:bg-white/5 rounded-xl text-xs font-semibold">
           <button
             type="button"
@@ -551,6 +652,8 @@ export function UniversalLayoutRenderer({
             </button>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* Footer copyright */}

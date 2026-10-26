@@ -56,6 +56,7 @@ class ProjectConfiguration(Base):
     show_forgot_password = Column(Boolean, default=True, nullable=False)
     show_registration = Column(Boolean, default=True, nullable=False)
     allow_otp_login = Column(Boolean, default=True, nullable=False)
+    require_2step_verification = Column(Boolean, default=False, nullable=False)
 
     # Optional custom CSS variables or json overrides
     custom_css_vars = Column(Text, nullable=True)
